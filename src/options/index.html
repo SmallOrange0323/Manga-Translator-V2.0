@@ -189,6 +189,14 @@
                     </label>
                 </div>
 
+                <label for="ocrBatchSize">批次翻譯張數 (每次同時翻譯的圖片數):</label>
+                <input type="number" id="ocrBatchSize" min="1" max="30" value="5">
+                <small style="color: #888; font-size:12px;">建議：1 組 API Key 設 1~3 張；多組 Key 可依比例增加，數值越高速度越快但越容易觸發限速。</small>
+
+                <label for="requestDelay">API 呼叫間隔 (毫秒 ms):</label>
+                <input type="number" id="requestDelay" min="0" max="30000" step="500" value="4000">
+                <small style="color: #888; font-size:12px;">建議：4000 ms（4 秒）。若遇到頻繁的 429 錯誤，可適當增加此數值。</small>
+
                 <button id="fetchModelsBtn" type="button" class="btn-accent" style="width:100%; margin-top:12px;">🔄 從 Google 取得最新模型清單</button>
 
                 <label for="customPrompt">自訂翻譯規則 (Prompt):</label>

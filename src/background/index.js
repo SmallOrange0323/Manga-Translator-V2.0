@@ -11,16 +11,16 @@ let lastNovelUrlByTab = {}; // tabId -> url (防止重複觸發)
 let capturedScreenshotForSelection = null;
 let pendingBatchJobs = {}; // resultTabId -> { sourceTabId, images }
 
-log.info('Background', 'Manga Translator V2 Background Service Worker Initialized');
+log.info('Background', '漫譯 V2 背景服務程式已啟動');
 
 // 當 Service Worker 啟動或重啟時，初次化狀態
 state.init().then(async () => {
-    log.info('Background', 'State loaded, checking for pending tasks...');
+    log.info('Background', '狀態載入完成，檢查待處理任務...');
     
     // 範例：檢查是否有遺留的小說翻譯任務
     const queue = await state.get('novelQueue', []);
     if (queue.length > 0) {
-        log.warn('Background', `Detected ${queue.length} pending novel tasks. Resuming...`);
+        log.warn('Background', `偵測到 ${queue.length} 個小說待處理任務，準備恢復...`);
         // 這裡未來會啟動 processNovelQueue()
     }
 });
@@ -48,7 +48,7 @@ async function processNovelQueue() {
             currentGlossary = await loadGlossary(mangaKey);
             if (currentGlossary && currentGlossary.terms) {
                 glossarySnippet = buildGlossaryPromptSnippet(currentGlossary.terms);
-                log.info('Background', `Injecting glossary for ${mangaKey} (${currentGlossary.terms.length} terms)`);
+                log.info('Background', `注入詞庫至 ${mangaKey}（${currentGlossary.terms.length} 筆術語）`);
             }
         }
 
@@ -78,7 +78,7 @@ async function processNovelQueue() {
             // 非同步發起術語萃取 (不阻塞翻譯流程)
             if (mangaKey && allResults.length > 0) {
                 (async () => {
-                    log.info('Background', `Starting async term extraction for ${mangaKey}...`);
+                    log.info('Background', `開始非同步術語萃取：${mangaKey}...`);
                     const newTerms = await extractTermsFromTranslation(allResults);
                     if (newTerms.length > 0) {
                         const existingTerms = currentGlossary ? currentGlossary.terms : [];
@@ -93,7 +93,7 @@ async function processNovelQueue() {
                 })();
             }
         } catch (err) {
-            log.error('Background', 'Translation loop error:', err);
+            log.error('Background', '翻譯迴圈發生錯誤:', err);
         }
     }
 
@@ -103,7 +103,7 @@ async function processNovelQueue() {
 
 // 監聽訊息
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  log.info('Messenger', `Intercepted action: ${message.action}`, { tabId: sender.tab?.id });
+  log.info('Messenger', `收到訊息: ${message.action}`, { tabId: sender.tab?.id });
 
   if (message.action === 'PING') {
     sendResponse({ status: 'PONG', version: '2.0.0' });
@@ -453,11 +453,13 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
 
     // 3. 讀取翻譯設定（在並行前統一讀取，避免重複 I/O）
     const modelName = await state.get('modelName', 'gemini-1.5-flash');
+    const fallbackModelName = await state.get('fallbackModelName', 'gemini-1.5-pro');
     const customPrompt = await state.get('customPrompt', Constants.DEFAULT_PROMPT_ONE_STEP);
     let finalPrompt = customPrompt;
     if (modelName.toLowerCase().includes('gemma')) {
         finalPrompt = Constants.DEFAULT_PROMPT_GEMMA_ONE_STEP;
     }
+    log.info('Background', `翻譯設定讀取完成 — 主要模型: ${modelName}，備援模型: ${fallbackModelName}`);
 
     // 注入作品詞庫（並行前統一讀取）
     let glossarySnippet = '';
@@ -470,7 +472,7 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
     // 4. 建立 Semaphore，並行數 = API Key 數量（至少 1）
     const concurrency = Math.max(1, state.apiKeys?.length || 1);
     const semaphore = new Semaphore(concurrency);
-    log.info('Background', `Starting parallel batch: ${images.length} images, concurrency=${concurrency}`);
+    log.info('Background', `開始並行翻譯：共 ${images.length} 張圖，並行數=${concurrency}，主要模型=${modelName}，備援模型=${fallbackModelName}`);
 
     // 共用進度計數器
     let completedCount = 0;
@@ -489,7 +491,7 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
             await chrome.tabs.get(resultTabId);
         } catch (e) {
             aborted = true;
-            log.info('Background', 'Result tab closed, aborting remaining tasks.');
+            log.info('Background', '結果頁面已關閉，中止剩餘任務。');
             throw new Error('Result tab closed');
         }
 
@@ -513,7 +515,7 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
                 base64 = btoa(binary);
             } catch (backgroundFetchErr) {
                 // 備案：退回 Content Script 抓取
-                log.warn('Background', `Direct fetch failed for image[${idx}], fallback to Content Script. Error: ${backgroundFetchErr.message}`);
+                log.warn('Background', `圖片[${idx}] 直接抓取失敗，退回 Content Script。錯誤: ${backgroundFetchErr.message}`);
                 if (sourceTabId && sourceTabId !== 'current') {
                     const response = await Promise.race([
                         new Promise(resolve => {
@@ -534,9 +536,10 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
             return;
         }
 
-        // 呼叫翻譯 API
+        // 呼叫翻譯 API（傳入備援模型，確保失敗時自動切換）
         const result = await translateTexts([], {
             model: modelName,
+            fallbackModel: fallbackModelName,
             prompt: finalPrompt,
             glossarySnippet,
             imageBase64: base64,
@@ -588,7 +591,7 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
     const outcomes = await semaphore.runAll(taskFactories);
     const errorCount = outcomes.filter(o => o.error && !o.error.message.includes('aborted') && !o.error.message.includes('Result tab closed')).length;
     if (errorCount > 0) {
-        log.warn('Background', `Batch completed with ${errorCount} failed image(s).`);
+        log.warn('Background', `批次翻譯完成，${errorCount} 張圖片失敗。`);
     }
 
     chrome.tabs.sendMessage(resultTabId, { action: 'batchComplete' });
@@ -604,7 +607,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   const titleResult = extractMangaTitle(pageTitle);
   if (titleResult) {
     navigationContext[tabId] = titleResult.romanKey;
-    log.info('Background', `Detected title: ${titleResult.displayName} (Key: ${titleResult.romanKey})`);
+    log.info('Background', `偵測到作品標題: ${titleResult.displayName} (Key: ${titleResult.romanKey})`);
     
     // 通知 UI 標題已識別 (供 UI 顯示當前作品)
     chrome.runtime.sendMessage({
@@ -621,7 +624,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (lastNovelUrlByTab[tabId] === currentUrl) return; // 防止重複觸發
   
   lastNovelUrlByTab[tabId] = currentUrl;
-  log.info('Background', `Novel continuity transition detected in tab ${tabId}. Triggering auto-translation...`);
+  log.info('Background', `偵測到小說頁面跳轉（分頁 ${tabId}），觸發自動翻譯...`);
   
   // 延遲一點點確保 DOM 穩定
   setTimeout(() => {
@@ -635,7 +638,7 @@ async function handleAddToQueue(task) {
     await state.update('novelQueue', (currentQueue = []) => {
         return [...currentQueue, task];
     });
-    log.info('Background', 'Task added atomically to Storage queue');
+    log.info('Background', '任務已原子化新增至儲存佇列');
 }
 
 // 側邊欄行為設定

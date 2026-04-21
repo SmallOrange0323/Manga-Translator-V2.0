@@ -84,8 +84,8 @@ export async function translateTexts(texts, options = {}) {
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 const apiError = errorData.error?.message || 'Unknown error';
-                log.api('TranslateAPI', 'API Request Failed', { model: currentModel, latencyMs, keyAlias, status: 'Error' });
-                throw new Error(`API Error ${response.status}: ${apiError}`);
+                log.api('TranslateAPI', 'API 請求失敗', { model: currentModel, latencyMs, keyAlias, status: 'Error' });
+                throw new Error(`API 錯誤 ${response.status}: ${apiError}`);
             }
 
             const json = await response.json();
@@ -93,16 +93,16 @@ export async function translateTexts(texts, options = {}) {
             const cleanJsonStr = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
             const parsed = JSON.parse(cleanJsonStr);
             
-            log.api('TranslateAPI', 'Translation Successful', { model: currentModel, latencyMs, keyAlias, status: 'OK' });
+            log.api('TranslateAPI', '翻譯成功', { model: currentModel, latencyMs, keyAlias, status: 'OK' });
             return parsed;
 
         } catch (err) {
             const latencyMs = Math.round(performance.now() - startTime);
-            log.warn('TranslateAPI', `Attempt ${attempt} failed: ${err.message}`, { model: currentModel, latencyMs, keyAlias });
+            log.warn('TranslateAPI', `第 ${attempt} 次嘗試失敗: ${err.message}`, { model: currentModel, latencyMs, keyAlias });
             
             lastError = err;
             if (attempt === 2) {
-                log.info('TranslateAPI', `Switching to fallback model: ${fallbackModel}`);
+                log.info('TranslateAPI', `切換至備援模型: ${fallbackModel}`);
                 currentModel = fallbackModel;
             }
             
@@ -174,17 +174,17 @@ ${inputText}`;
         const latencyMs = Math.round(performance.now() - startTime);
 
         if (!response.ok) {
-             log.api('TranslateAPI', 'Term Extraction Failed', { model, latencyMs, keyAlias, status: 'Error' });
+             log.api('TranslateAPI', '術語萃取失敗', { model, latencyMs, keyAlias, status: 'Error' });
              return [];
         }
         const json = await response.json();
         const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
         const parsed = JSON.parse(text);
         
-        log.api('TranslateAPI', 'Term Extraction Successful', { model, latencyMs, keyAlias, status: 'OK' });
+        log.api('TranslateAPI', '術語萃取成功', { model, latencyMs, keyAlias, status: 'OK' });
         return parsed;
     } catch (e) {
-        log.warn('TranslateAPI', `Term extraction failed: ${e.message}`);
+        log.warn('TranslateAPI', `術語萃取發生錯誤: ${e.message}`);
         return [];
     }
 }

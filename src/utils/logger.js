@@ -84,11 +84,11 @@ export const log = {
 
     state(key, action, newVal) {
         const ts = getTimestamp();
-        const msg = `State Change: [${key}] ${action}`;
+        const msg = `狀態更新: [${key}] ${action}`;
         if (IS_SW) {
-            console.log(`[${ts}] 💾 [Storage] ${msg}`, newVal);
+            console.log(`[${ts}] 💾 [儲存] ${msg}`, newVal);
         } else {
-            console.log(`%c[${ts}] 💾 [Storage] %c${msg}`, STYLES.state, 'color: inherit;', newVal);
+            console.log(`%c[${ts}] 💾 [儲存] %c${msg}`, STYLES.state, 'color: inherit;', newVal);
         }
     }
 };
