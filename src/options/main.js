@@ -85,8 +85,20 @@ async function initGeneralSettings() {
         const el = document.getElementById(id);
         if (!el) continue;
         const val = await state.get(id, def);
-        if (el.type === 'checkbox') el.checked = !!val;
-        else el.value = val;
+        
+        if (el.type === 'checkbox') {
+            el.checked = !!val;
+        } else if (el.tagName === 'SELECT' && val) {
+            // 自癒邏輯：若儲存值不在目前的選項清單中，則動態建立一項，避免顯示空白
+            if (!Array.from(el.options).some(o => o.value === val)) {
+                const opt = document.createElement('option');
+                opt.value = opt.textContent = val;
+                el.appendChild(opt);
+            }
+            el.value = val;
+        } else {
+            el.value = val;
+        }
     }
 
     // 載入黃金提示詞
@@ -162,8 +174,20 @@ async function initApiKeyManager() {
  * 載入小說模式設定
  */
 async function initNovelSettings() {
-    if (document.getElementById('novelModelName')) 
-        document.getElementById('novelModelName').value = await state.get('novelModelName', 'gemini-1.5-flash');
+    const novelModelNameEl = document.getElementById('novelModelName');
+    if (novelModelNameEl) {
+        const val = await state.get('novelModelName', 'gemini-1.5-flash');
+        if (val) {
+            // 自癒邏輯
+            if (!Array.from(novelModelNameEl.options).some(o => o.value === val)) {
+                const opt = document.createElement('option');
+                opt.value = opt.textContent = val;
+                novelModelNameEl.appendChild(opt);
+            }
+            novelModelNameEl.value = val;
+        }
+    }
+
     if (document.getElementById('novelBatchSize')) 
         document.getElementById('novelBatchSize').value = await state.get('novelBatchSize', 50);
     if (document.getElementById('novelPrompt')) 
