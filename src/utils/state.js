@@ -121,6 +121,27 @@ class StateManager {
   }
 
   /**
+   * 獲取 API Key 的友善別名 (對應設定頁面的索引)
+   * @param {string} key 
+   * @returns {string} 例如 "API Key 1" 或遮罩後的字串
+   */
+  getApiKeyAlias(key) {
+    if (!key) return 'N/A';
+    const index = this.apiKeys.indexOf(key);
+    if (index !== -1) {
+      return `API Key ${index + 1}`;
+    }
+    // 找不到則回退使用遮罩
+    const { maskKey } = (typeof window === 'undefined') 
+        ? Object.assign({}, { maskKey: k => `${k.slice(0, 8)}...${k.slice(-4)}` }) // 簡單 fallback
+        : { maskKey: k => k }; // 理論上背景應該要有 logger
+    
+    // 改為動態從 logger 導入以避免循環參照或環境問題，
+    // 但因為本專案 logger.js 匯出了 maskKey，我們可以直接在這裡處理最保險的邏輯。
+    return key.length > 12 ? `${key.slice(0, 8)}...${key.slice(-4)}` : '****';
+  }
+
+  /**
    * 監聽狀態變更的便捷封裝
    */
   onChanged(callback) {

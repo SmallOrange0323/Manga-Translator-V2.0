@@ -70,10 +70,10 @@ export const log = {
     },
 
     api(module, msg, stats = {}) {
-        const { model, latencyMs, keyMasked, status = 'OK' } = stats;
+        const { model, latencyMs, keyAlias, status = 'OK' } = stats;
         const ts = getTimestamp();
         const icon = status === 'OK' ? '✅' : '❌';
-        const formattedMsg = `${icon} API ${status} | model: ${model} | latency: ${latencyMs}ms | key: ${keyMasked}`;
+        const formattedMsg = `${icon} API ${status} | model: ${model} | latency: ${latencyMs}ms | key: ${keyAlias}`;
         
         if (IS_SW) {
             console.log(`[${ts}] 🌐 [${module}] ${formattedMsg}`, msg);

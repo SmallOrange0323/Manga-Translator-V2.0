@@ -1,5 +1,5 @@
 import { state } from '../utils/state.js';
-import { log, maskKey } from '../utils/logger.js';
+import { log } from '../utils/logger.js';
 
 /**
  * TranslateAPI: 封裝實戰級的 Gemini API 呼叫
@@ -68,7 +68,7 @@ export async function translateTexts(texts, options = {}) {
     for (let attempt = 1; attempt <= 3; attempt++) {
         const startTime = performance.now();
         const currentKey = (attempt > 1) ? (state.getNextApiKey() || apiKey) : apiKey;
-        const keyMasked = maskKey(currentKey);
+        const keyAlias = state.getApiKeyAlias(currentKey);
 
         try {
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${currentKey}`;
@@ -84,7 +84,7 @@ export async function translateTexts(texts, options = {}) {
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 const apiError = errorData.error?.message || 'Unknown error';
-                log.api('TranslateAPI', 'API Request Failed', { model: currentModel, latencyMs, keyMasked, status: 'Error' });
+                log.api('TranslateAPI', 'API Request Failed', { model: currentModel, latencyMs, keyAlias, status: 'Error' });
                 throw new Error(`API Error ${response.status}: ${apiError}`);
             }
 
@@ -93,12 +93,12 @@ export async function translateTexts(texts, options = {}) {
             const cleanJsonStr = rawText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
             const parsed = JSON.parse(cleanJsonStr);
             
-            log.api('TranslateAPI', 'Translation Successful', { model: currentModel, latencyMs, keyMasked, status: 'OK' });
+            log.api('TranslateAPI', 'Translation Successful', { model: currentModel, latencyMs, keyAlias, status: 'OK' });
             return parsed;
 
         } catch (err) {
             const latencyMs = Math.round(performance.now() - startTime);
-            log.warn('TranslateAPI', `Attempt ${attempt} failed: ${err.message}`, { model: currentModel, latencyMs, keyMasked });
+            log.warn('TranslateAPI', `Attempt ${attempt} failed: ${err.message}`, { model: currentModel, latencyMs, keyAlias });
             
             lastError = err;
             if (attempt === 2) {
@@ -154,7 +154,7 @@ ${inputText}`;
 
     try {
         const startTime = performance.now();
-        const keyMasked = maskKey(apiKey);
+        const keyAlias = state.getApiKeyAlias(apiKey);
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
         const response = await fetch(url, {
             method: 'POST',
@@ -165,14 +165,14 @@ ${inputText}`;
         const latencyMs = Math.round(performance.now() - startTime);
 
         if (!response.ok) {
-             log.api('TranslateAPI', 'Term Extraction Failed', { model, latencyMs, keyMasked, status: 'Error' });
+             log.api('TranslateAPI', 'Term Extraction Failed', { model, latencyMs, keyAlias, status: 'Error' });
              return [];
         }
         const json = await response.json();
         const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
         const parsed = JSON.parse(text);
         
-        log.api('TranslateAPI', 'Term Extraction Successful', { model, latencyMs, keyMasked, status: 'OK' });
+        log.api('TranslateAPI', 'Term Extraction Successful', { model, latencyMs, keyAlias, status: 'OK' });
         return parsed;
     } catch (e) {
         log.warn('TranslateAPI', `Term extraction failed: ${e.message}`);
