@@ -123,8 +123,17 @@ export async function extractTermsFromTranslation(pairs, options = {}) {
     if (!apiKey || pairs.length === 0) return [];
 
     const inputText = pairs.map(p => `${p.original} → ${p.translation}`).join('\n');
-    const extractPrompt = `You are a strict linguistic filter. Extract ONLY Katakana names or verified Character names (Surname+Given name). NO common nouns. 
-Return only a JSON array of objects with "ori" and "trans".
+    const extractPrompt = `You are a strict linguistic filter for Japanese manga terminology.
+Your task: Extract ONLY proper nouns that are foreign-origin names written in Katakana (片假名).
+
+Rules (strictly enforce ALL of them):
+1. INCLUDE: Katakana-only words of 2 or more characters (e.g. フリーレン, レムラエル, ゼルダ)
+2. EXCLUDE: Any word containing Kanji (漢字), even partially (e.g. 村長, 山田, 剣士 are all EXCLUDED)
+3. EXCLUDE: Hiragana-only words
+4. EXCLUDE: Onomatopoeia / sound effects (e.g. ドカン, バン, ザワザワ)
+5. EXCLUDE: Common Japanese nouns or titles (e.g. センセイ, ボス, マスター)
+
+Return ONLY a JSON array. If no valid terms found, return an empty array [].
 Input:
 ${inputText}`;
 

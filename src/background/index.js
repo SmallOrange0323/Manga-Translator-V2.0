@@ -4,6 +4,7 @@ import { extractMangaTitle } from '../utils/manga-utils.js';
 import { loadGlossary, saveGlossary, mergeGlossaryTerms, buildGlossaryPromptSnippet } from './glossary-manager.js';
 import { translateTexts, extractTermsFromTranslation } from './translate-api.js';
 import { log } from '../utils/logger.js';
+import { Semaphore } from '../utils/concurrency.js';
 
 let navigationContext = {}; // tabId -> mangaKey
 let lastNovelUrlByTab = {}; // tabId -> url (防止重複觸發)
@@ -438,146 +439,159 @@ async function handleProcessScreenshot(rect, tabId) {
     }
 }
 
-// PC 模式的專屬翻譯處理器 (送資料給 result.html)
+// PC 模式的專屬翻譯處理器 (並行版本 - 使用 Semaphore 控制並發數)
 async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
     // 1. 通知閱讀器清空舊結果並準備開始
-    chrome.tabs.sendMessage(resultTabId, { action: "clearResults" });
-    
-    // 2. 初始化進度條
-    chrome.tabs.sendMessage(resultTabId, { 
-        action: "updateProgress", 
-        current: 0, 
-        total: images.length 
-    });
-    
-    for (let i = 0; i < images.length; i++) {
-        // 更新當前進度
-        chrome.tabs.sendMessage(resultTabId, { 
-            action: "updateProgress", 
-            current: i + 1, 
-            total: images.length 
-        });
+    chrome.tabs.sendMessage(resultTabId, { action: 'clearResults' });
 
-        // 3. 檢查閱讀器分頁是否還在，不在就中斷 (節省 API 額度)
+    // 2. 初始化進度條
+    chrome.tabs.sendMessage(resultTabId, {
+        action: 'updateProgress',
+        current: 0,
+        total: images.length
+    });
+
+    // 3. 讀取翻譯設定（在並行前統一讀取，避免重複 I/O）
+    const modelName = await state.get('modelName', 'gemini-1.5-flash');
+    const customPrompt = await state.get('customPrompt', Constants.DEFAULT_PROMPT_ONE_STEP);
+    let finalPrompt = customPrompt;
+    if (modelName.toLowerCase().includes('gemma')) {
+        finalPrompt = Constants.DEFAULT_PROMPT_GEMMA_ONE_STEP;
+    }
+
+    // 注入作品詞庫（並行前統一讀取）
+    let glossarySnippet = '';
+    const currentMangaKey = navigationContext[sourceTabId];
+    if (currentMangaKey) {
+        const gl = await loadGlossary(currentMangaKey);
+        if (gl?.terms) glossarySnippet = buildGlossaryPromptSnippet(gl.terms);
+    }
+
+    // 4. 建立 Semaphore，並行數 = API Key 數量（至少 1）
+    const concurrency = Math.max(1, state.apiKeys?.length || 1);
+    const semaphore = new Semaphore(concurrency);
+    log.info('Background', `Starting parallel batch: ${images.length} images, concurrency=${concurrency}`);
+
+    // 共用進度計數器
+    let completedCount = 0;
+    // Kill-Switch 旗標：若結果頁面關閉，設為 true 中斷所有待執行任務
+    let aborted = false;
+
+    // 5. 為每張圖建立任務工廠，並透過 semaphore 並行執行
+    const taskFactories = images.map((imgData, idx) => async () => {
+        // Kill-Switch 檢查：若已中斷，直接拋錯跳過
+        if (aborted) {
+            throw new Error('Batch aborted: result tab closed');
+        }
+
+        // 檢查結果頁面是否還存在
         try {
             await chrome.tabs.get(resultTabId);
         } catch (e) {
-            log.info('Background', 'Result tab closed, stopping batch.');
-            break;
+            aborted = true;
+            log.info('Background', 'Result tab closed, aborting remaining tasks.');
+            throw new Error('Result tab closed');
         }
 
-        try {
-            const imgSrc = images[i].src || images[i];
-            let base64 = null;
+        const imgSrc = imgData.src || imgData;
+        let base64 = null;
 
-            if (imgSrc.startsWith('data:image')) {
-                base64 = imgSrc.split(',')[1];
-            } else {
-                try {
-                    // 首選：由 Background 直接抓取 (避開 CORS 與 Message Channel 延遲，大幅提升效能)
-                    const res = await fetch(imgSrc);
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                    const arrayBuffer = await res.arrayBuffer();
-                    const bytes = new Uint8Array(arrayBuffer);
-                    
-                    // 使用有效的方式將 Uint8Array 轉 Base64
-                    // 注意：直接使用 String.fromCharCode.apply 可能會因為圖片過大導致 Stack Overflow
-                    let binary = '';
-                    for (let i = 0; i < bytes.byteLength; i++) {
-                        binary += String.fromCharCode(bytes[i]);
-                    }
-                    base64 = btoa(binary);
-                } catch (backgroundFetchErr) {
-                    // 備案：如果遇到 CORS 或 blob URL 阻擋，退回給該漫畫分頁的 Content Script 去抓
-                    log.warn('Background', `Direct fetch failed for image, fallback to Content Script. Error: ${backgroundFetchErr.message}`);
-                    
-                    if (sourceTabId && sourceTabId !== 'current') {
-                        const response = await Promise.race([
-                            new Promise(resolve => {
-                                chrome.tabs.sendMessage(sourceTabId, { action: 'fetchBase64', url: imgSrc }, resolve);
-                            }),
-                            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 15000))
-                        ]).catch(err => ({ error: err.message }));
-
-                        base64 = response?.base64;
-                    }
+        // 取得圖片 Base64
+        if (imgSrc.startsWith('data:image')) {
+            base64 = imgSrc.split(',')[1];
+        } else {
+            try {
+                // 首選：Background 直接抓取（繞過 CORS）
+                const res = await fetch(imgSrc);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const arrayBuffer = await res.arrayBuffer();
+                const bytes = new Uint8Array(arrayBuffer);
+                let binary = '';
+                for (let b = 0; b < bytes.byteLength; b++) {
+                    binary += String.fromCharCode(bytes[b]);
+                }
+                base64 = btoa(binary);
+            } catch (backgroundFetchErr) {
+                // 備案：退回 Content Script 抓取
+                log.warn('Background', `Direct fetch failed for image[${idx}], fallback to Content Script. Error: ${backgroundFetchErr.message}`);
+                if (sourceTabId && sourceTabId !== 'current') {
+                    const response = await Promise.race([
+                        new Promise(resolve => {
+                            chrome.tabs.sendMessage(sourceTabId, { action: 'fetchBase64', url: imgSrc }, resolve);
+                        }),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 15000))
+                    ]).catch(err => ({ error: err.message }));
+                    base64 = response?.base64;
                 }
             }
+        }
 
-             if (base64) {
-                  const modelName = await state.get('modelName', 'gemini-1.5-flash');
-                  const customPrompt = await state.get('customPrompt', Constants.DEFAULT_PROMPT_ONE_STEP);
-                  
-                  let finalPrompt = customPrompt;
-                  if (modelName.toLowerCase().includes('gemma')) {
-                      finalPrompt = Constants.DEFAULT_PROMPT_GEMMA_ONE_STEP;
-                  }
+        if (!base64) {
+            chrome.tabs.sendMessage(resultTabId, {
+                action: 'appendResult',
+                data: { image: imgSrc, error: '無法取得圖片 Base64' }
+            });
+            return;
+        }
 
-                  // 注入作品詞庫
-                  let glossarySnippet = '';
-                  const currentMangaKey = navigationContext[sourceTabId];
-                  if (currentMangaKey) {
-                      const gl = await loadGlossary(currentMangaKey);
-                      if (gl?.terms) glossarySnippet = buildGlossaryPromptSnippet(gl.terms);
-                  }
-         
-                  const result = await translateTexts([], {
-                      model: modelName,
-                      prompt: finalPrompt,
-                      glossarySnippet,
-                      imageBase64: base64,
-                     schema: {
-                         type: 'OBJECT',
-                         properties: {
-                             results: {
-                                 type: 'ARRAY',
-                                 items: {
-                                     type: 'OBJECT',
-                                     properties: {
-                                         original: { type: 'STRING' },
-                                         translation: { type: 'STRING' }
-                                      },
-                                      required: ['original', 'translation']
-                                  }
-                              }
-                          },
-                          required: ['results']
-                      }
-                  });
- 
-                  if (result && result.results) {
-                      // 送往閱讀器顯示
-                      chrome.tabs.sendMessage(resultTabId, {
-                          action: "appendResult",
-                          data: {
-                              image: imgSrc,
-                              results: result.results,
-                              usedModelName: modelName
-                          }
-                      });
-                  } else {
-                      chrome.tabs.sendMessage(resultTabId, { 
-                          action: "appendResult", 
-                          data: { image: imgSrc, error: "翻譯失敗或無回應" } 
-                      });
-                  }
-             } else {
-                 chrome.tabs.sendMessage(resultTabId, { 
-                     action: "appendResult", 
-                     data: { image: imgSrc, error: "無法取得圖片 Base64" } 
-                 });
-             }
-         } catch (err) {
-             log.warn('Background', `Failed to translate manga image: ${err.message}`);
-             const imgSrc = images[i].src || images[i];
-             chrome.tabs.sendMessage(resultTabId, { 
-                 action: "appendResult", 
-                 data: { image: imgSrc, error: err.message || "發生未知錯誤" } 
-             });
-         }
-     }
-     
-     chrome.tabs.sendMessage(resultTabId, { action: "batchComplete" });
+        // 呼叫翻譯 API
+        const result = await translateTexts([], {
+            model: modelName,
+            prompt: finalPrompt,
+            glossarySnippet,
+            imageBase64: base64,
+            schema: {
+                type: 'OBJECT',
+                properties: {
+                    results: {
+                        type: 'ARRAY',
+                        items: {
+                            type: 'OBJECT',
+                            properties: {
+                                original: { type: 'STRING' },
+                                translation: { type: 'STRING' }
+                            },
+                            required: ['original', 'translation']
+                        }
+                    }
+                },
+                required: ['results']
+            }
+        });
+
+        // 更新進度
+        completedCount++;
+        chrome.tabs.sendMessage(resultTabId, {
+            action: 'updateProgress',
+            current: completedCount,
+            total: images.length
+        });
+
+        if (result && result.results) {
+            chrome.tabs.sendMessage(resultTabId, {
+                action: 'appendResult',
+                data: {
+                    image: imgSrc,
+                    results: result.results,
+                    usedModelName: modelName
+                }
+            });
+        } else {
+            chrome.tabs.sendMessage(resultTabId, {
+                action: 'appendResult',
+                data: { image: imgSrc, error: '翻譯失敗或無回應' }
+            });
+        }
+    });
+
+    // 6. 執行所有任務
+    const outcomes = await semaphore.runAll(taskFactories);
+    const errorCount = outcomes.filter(o => o.error && !o.error.message.includes('aborted') && !o.error.message.includes('Result tab closed')).length;
+    if (errorCount > 0) {
+        log.warn('Background', `Batch completed with ${errorCount} failed image(s).`);
+    }
+
+    chrome.tabs.sendMessage(resultTabId, { action: 'batchComplete' });
 }
 
 
