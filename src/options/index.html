@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>漫譯 V2.0 - 設定</title>
+    <style>
+        :root {
+            --primary-color: #4CAF50;
+            --primary-hover: #45a049;
+            --accent-color: #008CBA;
+            --danger-color: #f44336;
+            --danger-hover: #d32f2f;
+            --bg-color: #f9f9f9;
+            --sidebar-bg: #fff;
+            --border-color: #ddd;
+            --text-main: #333;
+            --text-muted: #666;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            background: var(--bg-color);
+            color: var(--text-main);
+        }
+
+        .tabs-header {
+            display: flex;
+            background: #fff;
+            border-bottom: 1px solid var(--border-color);
+            padding: 0 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .tab-btn {
+            padding: 15px 25px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--text-muted);
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover { color: var(--primary-color); }
+        .tab-btn.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .settings-form { max-width: 600px; margin: 0 auto; }
+
+        label {
+            display: block;
+            margin-top: 15px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        input[type="text"], input[type="password"], input[type="number"], textarea, select {
+            width: 100%;
+            padding: 10px;
+            margin-top: 5px;
+            box-sizing: border-box;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        textarea {
+            font-family: monospace;
+            resize: vertical;
+        }
+
+        button {
+            padding: 10px 16px;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+
+        button:hover { background: var(--primary-hover); }
+        .btn-danger { background: var(--danger-color); }
+        .btn-danger:hover { background: var(--danger-hover); }
+        .btn-accent { background: var(--accent-color); }
+        .btn-secondary { background: #607d8b; color: white; }
+
+        .api-key-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+        .api-key-row input { flex: 1; margin-top: 0; }
+        .remove-key-btn { flex-shrink: 0; padding: 8px 12px; margin-top: 0; background: var(--danger-color); }
+
+        .status-tip {
+            display: none;
+            text-align: center;
+            color: var(--primary-color);
+            margin-top: 10px;
+            font-weight: bold;
+        }
+
+        .glossary-layout {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 25px;
+            margin-top: 10px;
+        }
+        .manga-sidebar {
+            background: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color);
+            overflow-y: auto;
+            border-radius: 8px;
+            padding: 10px;
+            min-height: 400px;
+        }
+        .manga-item {
+            padding: 12px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-bottom: 5px;
+            transition: background 0.2s;
+            border: 1px solid transparent;
+        }
+        .manga-item.active {
+            background: #e8f5e9;
+            border-color: var(--primary-color);
+            color: var(--primary-color);
+            font-weight: bold;
+        }
+        .manga-meta { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+    </style>
+</head>
+<body>
+    <nav class="tabs-header">
+        <button class="tab-btn active" data-tab="settings">⚙️ 漫畫設定</button>
+        <button class="tab-btn" data-tab="novel">📖 小說模式</button>
+        <button class="tab-btn" data-tab="glossary">📚 詞彙庫管理</button>
+    </nav>
+
+    <div class="container">
+        <!-- Settings Tab -->
+        <div id="settings-tab" class="tab-content active">
+            <div class="settings-form">
+                <label>Gemini API Key（支援多組輪替）:</label>
+                <div id="apiKeysContainer"></div>
+                <button id="add-key-btn" type="button" class="btn-secondary" style="width:100%; margin-top:10px;">+ 新增備用金鑰</button>
+
+                <label for="translationMode">處理模式:</label>
+                <select id="translationMode">
+                    <option value="one-step" selected>一條龍服務 (單一模型同時負責辨識與翻譯)</option>
+                    <option value="two-step">雙階段處理 [較慢]</option>
+                </select>
+
+                <label for="modelName">主要翻譯模型:</label>
+                <select id="modelName">
+                    <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                    <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                </select>
+
+                <div id="fallbackModelContainer">
+                    <label for="fallbackModelName">備援模型 (主要模型失敗時自動切換):</label>
+                    <select id="fallbackModelName">
+                        <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                        <option value="gemma-2-27b-it">Gemma 2 27B IT</option>
+                    </select>
+
+                    <label style="display: flex; align-items: center; gap: 8px; margin-top: 10px; font-weight: normal;">
+                        <input type="checkbox" id="useFallbackModelOnBatchRetry" style="width: auto; margin-top: 0;">
+                        當批次翻譯重試時，強制使用備援模型
+                    </label>
+                </div>
+
+                <button id="fetchModelsBtn" type="button" class="btn-accent" style="width:100%; margin-top:12px;">🔄 從 Google 取得最新模型清單</button>
+
+                <label for="customPrompt">自訂翻譯規則 (Prompt):</label>
+                <textarea id="customPrompt" rows="10"></textarea>
+
+                <button id="resetPromptBtn" type="button" class="btn-danger" style="width:100%; margin-top:8px;">↺ 恢復預設規則</button>
+
+                <button id="saveBtn" style="margin-top: 30px; width: 100%; font-size: 16px; padding: 15px; background: var(--primary-color); color:white; border:none; border-radius:4px; cursor:pointer;">💾 儲存設定</button>
+                <div id="status" class="status-tip">✅ 設定已儲存！</div>
+            </div>
+        </div>
+
+        <!-- Novel Tab -->
+        <div id="novel-tab" class="tab-content">
+            <div class="settings-form">
+                <label for="novelModelName">小說專用模型:</label>
+                <select id="novelModelName">
+                    <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                    <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                </select>
+
+                <label for="novelBatchSize">單次翻譯數量 (Batch Size):</label>
+                <input type="number" id="novelBatchSize" min="5" max="200" value="50">
+
+                <label for="novelPrompt">小說翻譯規則 (Prompt):</label>
+                <textarea id="novelPrompt" rows="12"></textarea>
+
+                <button id="resetNovelPromptBtn" type="button" class="btn-danger" style="width:100%; margin-top:8px;">↺ 恢復預設規則</button>
+
+                <button id="saveNovelBtn" style="margin-top: 30px; width: 100%; font-size: 16px; padding: 15px; background: var(--primary-color); color:white; border:none; border-radius:4px; cursor:pointer;">💾 儲存小說設定</button>
+                <div id="novel-status" class="status-tip">✅ 小說設定已儲存！</div>
+            </div>
+        </div>
+
+        <!-- Glossary Tab -->
+        <div id="glossary-tab" class="tab-content">
+            <div class="glossary-layout">
+                <div class="manga-sidebar" id="mangaList"></div>
+                <div class="manga-detail" id="mangaDetail">
+                    <div class="empty-state">請由左側選擇作品進行管理</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="./main.js"></script>
+</body>
+</html>

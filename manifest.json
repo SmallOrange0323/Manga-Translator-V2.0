@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Manga Translator V2.0",
+  "version": "2.0.0",
+  "description": "Modernized Manga Translator with Storage-First Architecture",
+  "permissions": [
+    "storage",
+    "sidePanel",
+    "tabs",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "src/background/index.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "js": ["src/content/main.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "side_panel": {
+    "default_path": "src/sidepanel/index.html"
+  },
+  "options_ui": {
+    "page": "src/options/index.html",
+    "open_in_tab": true
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icon128.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "action": {
+    "default_title": "Open Sidepanel"
+  },
+  "icons": {
+    "128": "icon128.png"
+  }
+}
