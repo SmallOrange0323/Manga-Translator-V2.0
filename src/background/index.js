@@ -3,22 +3,23 @@ import * as Constants from '../utils/constants.js';
 import { extractMangaTitle } from '../utils/manga-utils.js';
 import { loadGlossary, saveGlossary, mergeGlossaryTerms, buildGlossaryPromptSnippet } from './glossary-manager.js';
 import { translateTexts, extractTermsFromTranslation } from './translate-api.js';
+import { log } from '../utils/logger.js';
 
 let navigationContext = {}; // tabId -> mangaKey
 let lastNovelUrlByTab = {}; // tabId -> url (防止重複觸發)
 let capturedScreenshotForSelection = null;
 let pendingBatchJobs = {}; // resultTabId -> { sourceTabId, images }
 
-console.log('[Manga Translator V2] Background Service Worker Initialized');
+log.info('Background', 'Manga Translator V2 Background Service Worker Initialized');
 
 // 當 Service Worker 啟動或重啟時，初次化狀態
 state.init().then(async () => {
-    console.log('[Background] State loaded, checking for pending tasks...');
+    log.info('Background', 'State loaded, checking for pending tasks...');
     
     // 範例：檢查是否有遺留的小說翻譯任務
     const queue = await state.get('novelQueue', []);
     if (queue.length > 0) {
-        console.warn(`[Background] Detected ${queue.length} pending novel tasks. Resuming...`);
+        log.warn('Background', `Detected ${queue.length} pending novel tasks. Resuming...`);
         // 這裡未來會啟動 processNovelQueue()
     }
 });
@@ -46,7 +47,7 @@ async function processNovelQueue() {
             currentGlossary = await loadGlossary(mangaKey);
             if (currentGlossary && currentGlossary.terms) {
                 glossarySnippet = buildGlossaryPromptSnippet(currentGlossary.terms);
-                console.log(`[Background] Injecting glossary for ${mangaKey} (${currentGlossary.terms.length} terms)`);
+                log.info('Background', `Injecting glossary for ${mangaKey} (${currentGlossary.terms.length} terms)`);
             }
         }
 
@@ -76,7 +77,7 @@ async function processNovelQueue() {
             // 非同步發起術語萃取 (不阻塞翻譯流程)
             if (mangaKey && allResults.length > 0) {
                 (async () => {
-                    console.log(`[Background] Starting async term extraction for ${mangaKey}...`);
+                    log.info('Background', `Starting async term extraction for ${mangaKey}...`);
                     const newTerms = await extractTermsFromTranslation(allResults);
                     if (newTerms.length > 0) {
                         const existingTerms = currentGlossary ? currentGlossary.terms : [];
@@ -91,7 +92,7 @@ async function processNovelQueue() {
                 })();
             }
         } catch (err) {
-            console.error('[Background] Translation loop error:', err);
+            log.error('Background', 'Translation loop error:', err);
         }
     }
 
@@ -101,6 +102,8 @@ async function processNovelQueue() {
 
 // 監聽訊息
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  log.info('Messenger', `Intercepted action: ${message.action}`, { tabId: sender.tab?.id });
+
   if (message.action === 'PING') {
     sendResponse({ status: 'PONG', version: '2.0.0' });
   }
@@ -110,7 +113,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!payload.tabId && sender.tab) payload.tabId = sender.tab.id;
     handleAddToQueue(payload).then(() => {
         processNovelQueue(); // 啟動處理器
-    }).catch(err => console.error('[Background] Queue update failed:', err));
+    }).catch(err => log.error('Background', 'Queue update failed:', err));
     sendResponse({ status: 'queued' });
     return false; // 同步回應
   }
@@ -459,7 +462,7 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
         try {
             await chrome.tabs.get(resultTabId);
         } catch (e) {
-            console.log("[Background] Result tab closed, stopping batch.");
+            log.info('Background', 'Result tab closed, stopping batch.');
             break;
         }
 
@@ -486,7 +489,7 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
                     base64 = btoa(binary);
                 } catch (backgroundFetchErr) {
                     // 備案：如果遇到 CORS 或 blob URL 阻擋，退回給該漫畫分頁的 Content Script 去抓
-                    console.warn(`[Background] Direct fetch failed for ${imgSrc}, fallback to Content Script:`, backgroundFetchErr.message);
+                    log.warn('Background', `Direct fetch failed for image, fallback to Content Script. Error: ${backgroundFetchErr.message}`);
                     
                     if (sourceTabId && sourceTabId !== 'current') {
                         const response = await Promise.race([
@@ -565,7 +568,7 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
                  });
              }
          } catch (err) {
-             console.warn("[Background] Failed to translate manga image:", err);
+             log.warn('Background', `Failed to translate manga image: ${err.message}`);
              const imgSrc = images[i].src || images[i];
              chrome.tabs.sendMessage(resultTabId, { 
                  action: "appendResult", 
@@ -587,7 +590,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   const titleResult = extractMangaTitle(pageTitle);
   if (titleResult) {
     navigationContext[tabId] = titleResult.romanKey;
-    console.log(`[Background] Detected title: ${titleResult.displayName} (Key: ${titleResult.romanKey})`);
+    log.info('Background', `Detected title: ${titleResult.displayName} (Key: ${titleResult.romanKey})`);
     
     // 通知 UI 標題已識別 (供 UI 顯示當前作品)
     chrome.runtime.sendMessage({
@@ -604,13 +607,12 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (lastNovelUrlByTab[tabId] === currentUrl) return; // 防止重複觸發
   
   lastNovelUrlByTab[tabId] = currentUrl;
-
-  console.log(`[Background] Novel continuity transition detected in tab ${tabId}. Triggering auto-translation...`);
+  log.info('Background', `Novel continuity transition detected in tab ${tabId}. Triggering auto-translation...`);
   
   // 延遲一點點確保 DOM 穩定
   setTimeout(() => {
     chrome.tabs.sendMessage(tabId, { action: 'AUTO_TRANSLATE_PAGE' })
-      .catch(err => console.warn('[Background] Auto-translate signal failed:', err.message));
+      .catch(err => log.warn('Background', `Auto-translate signal failed: ${err.message}`));
   }, 1200);
 });
 
@@ -619,7 +621,7 @@ async function handleAddToQueue(task) {
     await state.update('novelQueue', (currentQueue = []) => {
         return [...currentQueue, task];
     });
-    console.log('[Background] Task added atomically to Storage');
+    log.info('Background', 'Task added atomically to Storage queue');
 }
 
 // 側邊欄行為設定

@@ -1,5 +1,5 @@
-// src/background/glossary-manager.js
 import { state } from '../utils/state.js';
+import { log } from '../utils/logger.js';
 
 /**
  * GlossaryManager: 作品專屬詞彙對照表系統
@@ -26,7 +26,7 @@ export async function loadGlossary(mangaKey) {
         const all = data[GLOSSARY_STORAGE_KEY] || {};
         return all[mangaKey] || null;
     } catch (e) {
-        console.warn('[Glossary] 讀取失敗:', e.message);
+        log.warn('Glossary', `讀取失敗: ${e.message}`);
         return null;
     }
 }
@@ -50,7 +50,7 @@ export async function saveGlossary(mangaKey, glossaryEntry) {
             const remainingSlots = GLOSSARY_MAX_TERMS - userTerms.length;
             const trimmedAi = remainingSlots > 0 ? aiTerms.slice(-remainingSlots) : [];
             terms = [...userTerms, ...trimmedAi];
-            console.log(`[Glossary] 詞庫已修剪至 ${terms.length} 詞`);
+            log.info('Glossary', `詞庫已修剪至 ${terms.length} 詞 (保留全部使用者條目)`);
         }
 
         const oldEntry = all[mangaKey] || {};
@@ -63,7 +63,7 @@ export async function saveGlossary(mangaKey, glossaryEntry) {
         };
 
         await chrome.storage.local.set({ [GLOSSARY_STORAGE_KEY]: all });
-        console.log(`[Glossary] 已儲存作品 "${mangaKey}" 詞庫，共 ${terms.length} 詞`);
+        log.info('Glossary', `已儲存作品 "${mangaKey}" 詞庫，共 ${terms.length} 詞`);
         
         // 通知 UI 更新
         chrome.runtime.sendMessage({ 
@@ -72,7 +72,7 @@ export async function saveGlossary(mangaKey, glossaryEntry) {
         }).catch(() => {});
 
     } catch (e) {
-        console.warn('[Glossary] 儲存失敗:', e.message);
+        log.warn('Glossary', `儲存失敗: ${e.message}`);
     }
 }
 
@@ -101,6 +101,10 @@ export function mergeGlossaryTerms(existingTerms, newTerms) {
         });
         existingOriSet.add(oriKey);
         addedCount++;
+    }
+
+    if (addedCount > 0) {
+        log.info('Glossary', `詞庫整併完成，新增了 ${addedCount} 個術語`);
     }
 
     return { terms: merged, addedCount };

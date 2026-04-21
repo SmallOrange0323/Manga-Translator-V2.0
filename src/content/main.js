@@ -1,11 +1,13 @@
 import { state } from '../utils/state.js';
 import { getNovelParagraphs, insertPlaceholders, injectTranslation } from './novel-engine.js';
 import { toggleSelectionMode, crawlImages } from './manga-engine.js';
+import { log } from '../utils/logger.js';
 
 /**
  * 啟動 UI 系統 (僅保留必要的無干擾邏輯)
  */
 function setupUI() {
+  log.info('Content', 'Setting up UI system...');
   // 連動狀態機：自動更新畫面翻譯結果
   state.onChanged((changes) => {
     if (changes.novelResults) {
@@ -54,7 +56,7 @@ function setupUI() {
     if (request.action === 'toggleSelectionMode') {
         // Edge 穩定化修復：進入框選模式前先發起預先截圖
         chrome.runtime.sendMessage({ action: 'PRE_CAPTURE_FOR_SELECTION' }, (response) => {
-            console.log('[Content] Pre-capture response:', response);
+            log.info('Content', 'Pre-capture response received', response);
             toggleSelectionMode(); // 呼叫 manga-engine
         });
         sendResponse({ started: true });
@@ -63,13 +65,15 @@ function setupUI() {
 
     if (request.action === 'TITLE_DETECTED') {
         const title = request.payload;
-        console.log(`[Content] 當前作品：${title.displayName}`);
+        log.info('Content', `當前作品已識別：${title.displayName}`);
     }
     if (request.action === 'GLOSSARY_UPDATED') {
         const { termCount } = request.payload;
-        console.log(`[Content] 詞庫已同步：${termCount} 個術語`);
+        log.info('Content', `詞庫已同步：${termCount} 個術語`);
     }
   });
+
+  log.info('Content', 'UI system initialization complete.');
 }
 
 /**
@@ -90,6 +94,8 @@ function startNovelTranslation() {
     // 注意：在內容腳本中 sender.tab.id 是由背景腳本自動獲取的，
     // 但明確傳遞 null 並由背景腳本處理也是一種修正方式。
     // 依循指南：我們將 tabId 設為 null，背景腳本收到後會自動填補 sender.tab.id。
+    // 依循指南：我們將 tabId 設為 null，背景腳本收到後會自動填補 sender.tab.id。
+    log.info('Content', `Sending ${texts.length} paragraphs to translation queue.`);
     chrome.runtime.sendMessage({
         action: 'ADD_TO_QUEUE',
         payload: {

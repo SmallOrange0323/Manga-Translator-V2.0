@@ -1,4 +1,6 @@
 // src/utils/state.js
+import { log } from './logger.js';
+
 /**
  * StateManager: Manga Translator V2.0 狀態管理器
  * 
@@ -35,7 +37,7 @@ class StateManager {
 
         this.isInitialized = true;
         this.initPromise = null;
-        console.log('[StateManager] Initialized from storage', this.cache);
+        log.state('ALL', 'Initialized', this.cache);
     })();
 
     return this.initPromise;
@@ -68,6 +70,7 @@ class StateManager {
     
     this.cache[key] = newVal;
     await chrome.storage.local.set({ [key]: newVal });
+    log.state(key, 'Updated (Atomic)', newVal);
   }
 
   /**
@@ -78,6 +81,7 @@ class StateManager {
   async set(key, value) {
     this.cache[key] = value;
     await chrome.storage.local.set({ [key]: value });
+    log.state(key, 'Set', value);
   }
 
   /**
@@ -103,7 +107,7 @@ class StateManager {
   refreshApiKeyPool() {
     const rawKeys = this.cache['apiKey'] || '';
     this.apiKeys = rawKeys.split('\n').map(k => k.trim()).filter(k => k);
-    console.log(`[StateManager] API Key Pool refreshed: ${this.apiKeys.length} keys`);
+    log.info('StateManager', `API Key Pool refreshed: ${this.apiKeys.length} keys`);
   }
 
   /**
@@ -129,6 +133,9 @@ class StateManager {
           // 如果是 apiKey 變更，同步更新金鑰池
           if (key === 'apiKey') {
             this.refreshApiKeyPool();
+          } else {
+            // apiKey 以外的變更記錄到 log (避免在 onChanged 裡印出 key)
+            log.state(key, 'Changed (External)', changes[key].newValue);
           }
         }
         callback(changes);
