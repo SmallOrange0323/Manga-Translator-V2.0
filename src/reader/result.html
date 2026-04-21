@@ -34,7 +34,21 @@
     </header>
 
     <div id="loading-overlay" class="loading-overlay">
-        <img id="main-loading-anim" src="" class="loading-anim-small" alt="Loading...">
+        <div id="main-loading-anim-container" class="loading-anim-container">
+            <svg class="loading-cat" viewBox="0 0 100 80" xmlns="http://www.w3.org/2000/svg">
+                <path class="cat-tail" d="M10,65 Q5,55 15,45 T25,35" stroke="#8d80f1" stroke-width="6" fill="none" stroke-linecap="round" />
+                <rect class="cat-body" x="25" y="30" width="50" height="30" rx="15" />
+                <path class="cat-body" d="M60,25 L68,10 L75,25 Z" />
+                <path class="cat-body" d="M75,25 L83,10 L90,25 Z" />
+                <circle class="cat-body" cx="75" cy="35" r="18" />
+                <circle class="cat-white" cx="78" cy="32" r="2.5" />
+                <circle class="cat-white" cx="88" cy="32" r="2.5" />
+                <rect class="cat-leg cat-leg-1" x="30" y="55" width="8" height="15" rx="4" />
+                <rect class="cat-leg cat-leg-2" x="42" y="55" width="8" height="15" rx="4" />
+                <rect class="cat-leg cat-leg-3" x="54" y="55" width="8" height="15" rx="4" />
+                <rect class="cat-leg cat-leg-4" x="66" y="55" width="8" height="15" rx="4" />
+            </svg>
+        </div>
         <div id="loading-text">翻譯中… <span id="progress-text">0 / 0</span></div>
     </div>
 
