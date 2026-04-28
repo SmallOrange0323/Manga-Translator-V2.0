@@ -1,17 +1,10 @@
 // src/utils/constants.js
 // 遷移自 V1.8.6 (Classic 版) 經過長時間測試優化的黃金提示詞庫
 
+export const LOADING_GIF_FILENAME = 'loading_touhou.gif';
+// 舊版馬娘列表保留作為參考 (或移除)
 export const RUNNING_ANIMS = [
-    "01_specialweek.webp", "02_silencesuzuka.webp", "03_tokaiteio.webp", "04_maruzensky.webp",
-    "05_fujikiseki.webp", "06_oguricap.webp", "07_goldship.webp", "08_vodka.webp",
-    "09_daiwascarlet.webp", "10_taikishuttle.webp", "21_tamamocross.webp", "22_finemotion.webp",
-    "23_biwahayahide.webp", "24_mayanotopgun.webp", "25_manhattancafe.webp", "26_mihonobourbon.webp",
-    "27_mejiroryan.webp", "28_hishiakebono.webp", "29_yukinobijin.webp", "30_riceshower.webp",
-    "31_inesfujin.webp", "32_agnestachyon.webp", "34_inarione.webp", "35_winningticket.webp",
-    "36_airshakur.webp", "37_eishinflash.webp", "38_currenchan.webp", "39_kawakamiprincess.webp",
-    "40_goldcity.webp", "41_sakurabakushino.webp", "42_seekingthepearl.webp", "43_shinkowindy.webp",
-    "44_sweeptosho.webp", "45_supercreek.webp", "46_smartfalcon.webp", "47_zennorobroy.webp",
-    "48_tosenjordan.webp", "49_nakayamafesta.webp", "50_naritataishin.webp"
+    "01_specialweek.webp", "02_silencesuzuka.webp", "03_tokaiteio.webp"
 ];
 
 // =========================================================
@@ -71,7 +64,7 @@ CRITICAL RULES:
 3. Follow standard manga reading order (right-to-left, top-to-bottom).
 4. OUTPUT FORMAT: Return ONLY the extracted Japanese text. Separate distinct dialogue blocks with a double newline (\\n\\n). Do NOT wrap in markdown code blocks.`;
 
-// 5. 批次處理規則
+// 5. 批次處理規則 (快取優化版 - 移除動態變數以穩定 Context Caching Prefix)
 export const SYSTEM_BATCH_RULES = `
 --- BATCH PROCESSING RULES (CRITICAL) ---
 
@@ -80,7 +73,22 @@ EXTRACTION RULES:
 - IGNORE page numbers, magazine info, author notes, margins.
 - Follow manga reading order (right-to-left, top-to-bottom).
 - **STRICT SENTENCE INTEGRITY**: Each distinct speech bubble or narration block MUST be a SINGLE item in the "results" array.
-- **MERGE MULTIPLE LINES**: DO NOT split lines. Merge them into a single string.`;
+- **MERGE MULTIPLE LINES**: DO NOT split lines. Merge them into a single string.
+
+OUTPUT RULES:
+- Return ONLY valid JSON (no markdown, no explanation).
+- **SEQUENTIAL INTEGRITY**: Multiple images are provided. Each is preceded by "=== PAGE_BOUNDARY: IMAGE_INDEX=N ===".
+- **STRICT ENUMERATION**: You MUST return results for EVERY image provided, in order.
+- **PAGE INDEXING**: Use the provided IMAGE_INDEX as the "pageIndex" in your JSON.
+- **NO SKIPPING**: Even if an image contains absolutely no text, you MUST include it with '"results": []'. 
+- **COMPLETION GUARANTEE**: Do not stop until all provided images have been processed and included in the "pages" array.
+
+JSON FORMAT:
+{"pages": [
+  {"pageIndex": 0, "results": [{"original": "...", "translation": "..."}]},
+  {"pageIndex": 1, "results": []}
+]}`;
+
 
 // 6. 小說模式 (MVP 黃金版)
 export const DEFAULT_PROMPT_NOVEL = `你是一位精通日文的輕小說翻譯師，專門將日文輕小說翻譯為流暢自然的繁體中文（zh-TW）。

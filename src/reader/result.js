@@ -1,5 +1,4 @@
-import * as Constants from '../utils/constants.js';
-const RUNNING_ANIMS = Constants.RUNNING_ANIMS;
+import { LOADING_GIF_FILENAME, RUNNING_ANIMS } from '../utils/constants.js';
 
 let translatedData = [];
 const container = document.getElementById('results-container');
@@ -21,23 +20,10 @@ function applyTheme(theme) {
 // runningAnims 已移至 constants.js，此處直接使用全域 RUNNING_ANIMS
 
 function getRandomAnimPath() {
-    if (currentTheme === 'priconne') {
-        const sprites = [
-            { name: 'peco', frames: 18, file: 'sprite_peco.png' },
-            { name: 'karyl', frames: 19, file: 'sprite_karyl.png' },
-            { name: 'kokkoro', frames: 19, file: 'sprite_kokkoro.png' }
-        ];
-        const randomSprite = sprites[Math.floor(Math.random() * sprites.length)];
-        return {
-            type: 'sprite',
-            url: chrome.runtime.getURL('assets/loading_priconne/' + randomSprite.file),
-            frames: randomSprite.frames
-        };
-    }
-    const randomAnim = RUNNING_ANIMS[Math.floor(Math.random() * RUNNING_ANIMS.length)];
+    // 使用東方 Loading GIF
     return {
         type: 'image',
-        url: chrome.runtime.getURL(`assets/running/${randomAnim}`)
+        url: chrome.runtime.getURL(LOADING_GIF_FILENAME)
     };
 }
 
@@ -47,26 +33,9 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.local.get(['mt_theme'], (result) => {
         applyTheme(result.mt_theme || 'umamusume');
         
-        // 設置全局載入動畫 (改為優先檢查內置 SVG 容器)
-        const animContainer = document.getElementById('main-loading-anim-container');
+        // 注入東方 Loading GIF 到右下角的翻譯中膠囊
         const mainAnim = document.getElementById('main-loading-anim');
-        
-        if (animContainer || mainAnim) {
-            const animData = getRandomAnimPath();
-            // 嘗試檢查素材是否存在 (這部分目前略過，優先使用現有的 SVG 或有效的素材)
-            if (animData.type === 'sprite') {
-                const animDiv = document.createElement('div');
-                animDiv.className = 'mt-loading-anim-sprite';
-                animDiv.style.backgroundImage = `url(${animData.url})`;
-                animDiv.style.setProperty('--frames', animData.frames);
-                if (animContainer) animContainer.replaceWith(animDiv);
-                else if (mainAnim) mainAnim.replaceWith(animDiv);
-            } else if (animData.url && !animData.url.includes('undefined')) {
-                // 如果有有效的外部路徑，才嘗試設定 (目前素材缺失，通常會跳過)
-                if (mainAnim) mainAnim.src = animData.url;
-            }
-            // 若為預設 inline SVG 則保持原狀 (不執行替換)
-        }
+        if (mainAnim) mainAnim.src = chrome.runtime.getURL(LOADING_GIF_FILENAME);
     });
 
     chrome.runtime.sendMessage({ action: "getResultMetadata" }, (response) => {
@@ -424,18 +393,10 @@ function createPlaceholders(total) {
         card.className = 'result-card skeleton-card';
         card.dataset.index = i;
         
-        // 為了減少卡頓，Skeleton 統一使用單一內置 SVG 貓咪素材
+        // 使用東方少女祈禱中 GIF 作為等待翻譯的 Skeleton 佔位動畫
         const animHtml = `
             <div class="skeleton-anim">
-                <svg class="loading-cat" style="width:50px; height:auto; opacity:0.3; filter:grayscale(1)" viewBox="0 0 100 80" xmlns="http://www.w3.org/2000/svg">
-                    <path class="cat-tail" d="M10,65 Q5,55 15,45 T25,35" stroke="#ccc" stroke-width="6" fill="none" stroke-linecap="round" />
-                    <rect fill="#ccc" x="25" y="30" width="50" height="30" rx="15" />
-                    <circle fill="#ccc" cx="75" cy="35" r="18" />
-                    <rect fill="#ccc" x="30" y="55" width="8" height="15" rx="4" />
-                    <rect fill="#ccc" x="42" y="55" width="8" height="15" rx="4" />
-                    <rect fill="#ccc" x="54" y="55" width="8" height="15" rx="4" />
-                    <rect fill="#ccc" x="66" y="55" width="8" height="15" rx="4" />
-                </svg>
+                <img src="${chrome.runtime.getURL(LOADING_GIF_FILENAME)}" style="width:70px; height:auto; opacity:0.6;" alt="少女祈禱中">
             </div>
         `;
 

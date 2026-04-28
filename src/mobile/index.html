@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>漫譯 V2 - 行動版</title>
+    <link rel="stylesheet" href="mobile.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body class="theme-mobile">
+    <div id="app">
+        <!-- 頂部狀態列 -->
+        <header class="app-header">
+            <div class="header-content">
+                <h1 class="app-title">漫譯 V2</h1>
+                <div id="status-badge" class="badge">偵測中</div>
+            </div>
+        </header>
+
+        <!-- 視圖 1: 載入中 -->
+        <section id="view-loading" class="view active">
+            <div class="loading-container">
+                <div class="loader"></div>
+                <p id="loading-text" class="loading-text">正在掃描來源分頁的圖片...</p>
+                <button id="btn-manual-scan" class="btn btn-outline" style="display: none;">手動重試</button>
+            </div>
+        </section>
+
+        <!-- 視圖 2: 選圖器 -->
+        <section id="view-picker" class="view">
+            <div class="picker-header">
+                <div class="picker-info">
+                    <span id="scan-count">找到 0 張圖片</span>
+                </div>
+                <div class="picker-actions">
+                    <button id="btn-select-all" class="btn btn-small">全選</button>
+                </div>
+            </div>
+            
+            <div id="image-grid" class="image-grid">
+                <!-- 圖片縮圖會動態插入這裡 -->
+            </div>
+
+            <footer class="picker-footer">
+                <button id="btn-start-translate" class="btn btn-primary btn-large">
+                    開始翻譯 (<span id="selected-count">0</span>)
+                </button>
+            </footer>
+        </section>
+
+        <!-- 視圖 3: 閱讀器 -->
+        <section id="view-reader" class="view">
+            <div class="reader-header">
+                <button id="btn-back-to-picker" class="btn-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+                </button>
+                <div id="reader-progress" class="progress-text">準備中...</div>
+            </div>
+            
+            <div id="results-list" class="results-list">
+                <!-- 翻譯結果會以 [圖] -> [卡片] 形式插入這裡 -->
+            </div>
+
+            <div id="complete-banner" class="complete-banner" style="display: none;">
+                <p>翻譯完成！</p>
+            </div>
+        </section>
+    </div>
+
+    <script type="module" src="main.js"></script>
+</body>
+</html>

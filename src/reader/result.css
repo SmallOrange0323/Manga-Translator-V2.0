@@ -434,9 +434,10 @@ body {
 }
 
 .loading-anim-small {
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
     object-fit: contain;
+    border-radius: 50%;
 }
 
 body.theme-priconne .loading-anim-small,

@@ -332,3 +332,41 @@ input:checked + .mt-slider:before { transform: translateX(18px); }
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
+/* --- 載入動畫層樣式 --- */
+#mt-loading-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(4px);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.mt-loading-content {
+    text-align: center;
+}
+
+#mt-loading-gif {
+    width: 120px;
+    height: auto;
+    border-radius: 50%;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    margin-bottom: 12px;
+}
+
+.mt-loading-content p {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--theme-accent);
+    animation: mt-pulse 1.5s infinite;
+}
+
+@keyframes mt-pulse {
+    0% { opacity: 0.6; }
+    50% { opacity: 1; }
+    100% { opacity: 0.6; }
+}

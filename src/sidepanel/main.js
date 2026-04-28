@@ -1,7 +1,13 @@
 import { state } from '../utils/state.js';
 import { extractMangaTitle } from '../utils/manga-utils.js';
+import { LOADING_GIF_FILENAME } from '../utils/constants.js';
 
 console.log('[Manga Translator V2] Classic Sidepanel Initialized');
+
+// 載入動畫元素
+const loadingOverlay = document.getElementById('mt-loading-overlay');
+const loadingImg = document.getElementById('mt-loading-gif');
+if (loadingImg) loadingImg.src = chrome.runtime.getURL(LOADING_GIF_FILENAME);
 
 // 詞庫狀態列相關元素
 const glossaryBar = document.getElementById('mt-glossary-bar');
@@ -131,12 +137,19 @@ document.getElementById('mt-start-btn').onclick = () => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (!tabs[0]) return;
         
+        // 顯示載入動畫
+        if (loadingOverlay) loadingOverlay.style.display = 'flex';
+
         let crawlTimeout = setTimeout(() => {
+            if (loadingOverlay) loadingOverlay.style.display = 'none';
             alert("掃描請求無回應。請確認網頁沒有變更位址，或嘗試手動重整。");
         }, 8000);
 
         chrome.tabs.sendMessage(tabs[0].id, { action: "crawlImages" }, (response) => {
             clearTimeout(crawlTimeout);
+            // 隱藏載入動畫
+            if (loadingOverlay) loadingOverlay.style.display = 'none';
+
             if (chrome.runtime.lastError) {
                 console.error('[Manga][SP] crawlImages 失敗:', chrome.runtime.lastError.message);
                 return;
