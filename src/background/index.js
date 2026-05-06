@@ -734,11 +734,19 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
     }
 
     // ── 異步術語萃取 (遵循 V1.8.6) ──
+    // [DEBUG] 診斷用 log：確認萃取觸發條件
+    log.info('Background', `[術語萃取-DEBUG] currentMangaKey = "${currentMangaKey}" | allBatchResults.length = ${allBatchResults.length}`);
+    if (allBatchResults.length > 0) {
+        log.info('Background', `[術語萃取-DEBUG] allBatchResults 第一筆格式樣本: ${JSON.stringify(allBatchResults[0])}`);
+    }
+
     if (currentMangaKey && allBatchResults.length > 0) {
         log.info('Background', `[術語萃取] 開始分析漫畫譯文，共 ${allBatchResults.length} 組對話...`);
         setTimeout(async () => {
             try {
                 const newTerms = await extractTermsFromTranslation(allBatchResults, { model: modelName });
+                // [DEBUG] 確認 AI 回傳了什麼
+                log.info('Background', `[術語萃取-DEBUG] AI 回傳術語數量: ${newTerms?.length ?? 0} | 內容: ${JSON.stringify(newTerms?.slice(0, 3))}`);
                 if (newTerms && newTerms.length > 0) {
                     const currentEntry = await loadGlossary(currentMangaKey) || { terms: [] };
                     const { terms: mergedTerms, addedCount } = mergeGlossaryTerms(currentEntry.terms || [], newTerms);
@@ -756,6 +764,10 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
                 log.warn('Background', `[術語萃取] 發生錯誤: ${err.message}`);
             }
         }, 1500);
+    } else {
+        // [DEBUG] 明確說明為何跳過萃取
+        if (!currentMangaKey) log.warn('Background', `[術語萃取-DEBUG] ⛔ 跳過萃取：currentMangaKey 為空，作品標題可能無法被辨識。`);
+        if (allBatchResults.length === 0) log.warn('Background', `[術語萃取-DEBUG] ⛔ 跳過萃取：allBatchResults 為空，翻譯結果可能格式錯誤。`);
     }
 
     chrome.tabs.sendMessage(resultTabId, { action: 'batchComplete' });
@@ -805,18 +817,25 @@ async function handleAddToQueue(task) {
     log.info('Background', '任務已原子化新增至儲存佇列');
 }
 
-// 側邊欄與行動端點擊行為設定
-if (chrome.sidePanel && typeof chrome.sidePanel.setPanelBehavior === 'function') {
-  // 電腦版：使用 SidePanel
-  chrome.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: true })
-    .catch((error) => console.warn('[Background] sidePanel.setPanelBehavior failed:', error));
-} else {
-  // 行動版備援：監聽點擊，開啟行動端頁面
-  chrome.action.onClicked.addListener((tab) => {
-    log.info('Background', `[行動端] 偵測到點擊，來源分頁: ${tab.id}，開啟行動端頁面`);
-    const mobileUrl = chrome.runtime.getURL('src/mobile/index.html') + '?sourceTabId=' + tab.id;
-    chrome.tabs.create({ url: mobileUrl });
+// 注意：擴充套件的點擊行為（開啟側邊欄 / 行動版）已改由 src/popup/index.html 統一處理。
+// manifest.json 的 action.default_popup 確保在所有平台（電腦 / 行動端）點擊圖示時都會顯示 Popup。
+// Popup 內部的按鈕邏輯：
+//   - "開啟翻譯面板"  → chrome.sidePanel.open() （電腦版有效，行動端降級顯示提示）
+//   - "開啟設定"     → chrome.runtime.openOptionsPage() （兩個平台都有效）
+
+// 右鍵選單：提供額外的「設定」快速入口
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: 'open-options',
+    title: '⚙️ 設定 (Options)',
+    contexts: ['action']
   });
-}
+});
+
+chrome.contextMenus.onClicked.addListener((info) => {
+  if (info.menuItemId === 'open-options') {
+    chrome.runtime.openOptionsPage();
+  }
+});
+
 

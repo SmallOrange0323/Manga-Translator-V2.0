@@ -8,7 +8,8 @@
     "sidePanel",
     "tabs",
     "activeTab",
-    "scripting"
+    "scripting",
+    "contextMenus"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -34,7 +35,9 @@
     {
       "resources": [
         "icon128.png",
-        "src/mobile/index.html"
+        "src/mobile/index.html",
+        "src/popup/index.html",
+        "src/popup/main.js"
       ],
       "matches": [
         "<all_urls>"
@@ -42,7 +45,8 @@
     }
   ],
   "action": {
-    "default_title": "Open Sidepanel"
+    "default_title": "漫譯 V2.0",
+    "default_popup": "src/popup/index.html"
   },
   "icons": {
     "128": "icon128.png"

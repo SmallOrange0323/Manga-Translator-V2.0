@@ -27,7 +27,8 @@ const elements = {
     loadingText: document.getElementById('loading-text'),
     readerProgress: document.getElementById('reader-progress'),
     resultsList: document.getElementById('results-list'),
-    completeBanner: document.getElementById('complete-banner')
+    completeBanner: document.getElementById('complete-banner'),
+    btnOpenOptions: document.getElementById('btn-open-options')
 };
 
 // 初始化
@@ -226,6 +227,10 @@ elements.btnBackToPicker.onclick = () => {
 
 elements.btnManualScan.onclick = () => {
     startImageScan();
+};
+
+elements.btnOpenOptions.onclick = () => {
+    chrome.runtime.openOptionsPage();
 };
 
 
