@@ -4,132 +4,125 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>漫譯 V2.0</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600&family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
     <style>
+        /* 使用系統字體，確保零外部依賴 */
         :root {
-            --primary: #6366f1;
-            --primary-dark: #4f46e5;
-            --bg: #0f172a;
-            --card: #1e293b;
-            --border: rgba(255,255,255,0.1);
-            --text: #f8fafc;
-            --muted: #94a3b8;
-            --success: #10b981;
+            --edge-blue: #0078d4;
+            --edge-blue-dark: #005a9e;
+            --bg: #ffffff;
+            --text: #242424;
+            --muted: #616161;
+            --border: #e0e0e0;
+            --card-hover: #f5f5f5;
+        }
+
+        /* 暗色模式支援 */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #1f1f1f;
+                --text: #ffffff;
+                --muted: #adadad;
+                --border: #333333;
+                --card-hover: #2d2d2d;
+            }
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
-            font-family: 'Outfit', 'Noto Sans TC', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             background: var(--bg);
             color: var(--text);
             width: 280px;
-            padding: 16px;
+            padding: 12px;
+            user-select: none;
         }
 
-        /* Header */
         .header {
             display: flex;
             align-items: center;
-            gap: 10px;
-            padding-bottom: 14px;
+            gap: 12px;
+            padding-bottom: 12px;
             border-bottom: 1px solid var(--border);
-            margin-bottom: 16px;
+            margin-bottom: 12px;
         }
 
-        .logo {
-            font-size: 1.4rem;
-        }
+        .logo { font-size: 24px; }
 
         .header-info h1 {
-            font-size: 1rem;
+            font-size: 16px;
             font-weight: 600;
-            background: linear-gradient(135deg, #818cf8, #c084fc);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
         }
 
         .header-info p {
-            font-size: 0.72rem;
+            font-size: 12px;
             color: var(--muted);
-            margin-top: 2px;
         }
 
-        /* Buttons */
         .btn-group {
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 8px;
         }
 
         .btn {
             display: flex;
             align-items: center;
             gap: 12px;
-            padding: 12px 14px;
-            border-radius: 10px;
-            border: none;
+            padding: 10px 14px;
+            border-radius: 8px;
+            border: 1px solid transparent;
             cursor: pointer;
             font-family: inherit;
-            font-size: 0.9rem;
-            font-weight: 600;
-            transition: all 0.15s ease;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s;
             text-align: left;
             width: 100%;
+            background: transparent;
+            color: var(--text);
         }
 
-        .btn:active { transform: scale(0.97); }
+        .btn:hover { background: var(--card-hover); }
+        .btn:active { background: var(--border); }
 
-        .btn-panel {
-            background: var(--primary);
+        .btn-primary {
+            background: var(--edge-blue);
             color: white;
         }
-        .btn-panel:hover { background: var(--primary-dark); }
-
-        .btn-settings {
-            background: var(--card);
-            color: var(--text);
-            border: 1px solid var(--border);
-        }
-        .btn-settings:hover { background: rgba(255,255,255,0.08); }
+        .btn-primary:hover { background: var(--edge-blue-dark); }
 
         .btn-icon {
-            width: 32px;
-            height: 32px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(255,255,255,0.15);
-            border-radius: 8px;
-            flex-shrink: 0;
-            font-size: 1rem;
+            font-size: 18px;
+            width: 24px;
+            text-align: center;
         }
 
         .btn-text { flex: 1; }
         .btn-text small {
             display: block;
-            font-size: 0.72rem;
-            font-weight: 400;
-            opacity: 0.7;
-            margin-top: 2px;
+            font-size: 11px;
+            opacity: 0.8;
+            font-weight: normal;
         }
 
-        /* Status */
-        #status-msg {
-            font-size: 0.75rem;
-            color: var(--muted);
-            text-align: center;
-            margin-top: 12px;
-            min-height: 18px;
-        }
-
-        /* Panel not available notice */
         #panel-not-available {
             display: none;
-            font-size: 0.75rem;
-            color: #fbbf24;
+            font-size: 11px;
+            color: #d83b01;
             text-align: center;
-            margin-top: 6px;
+            margin-top: 8px;
+            padding: 4px;
+            background: rgba(216, 59, 1, 0.1);
+            border-radius: 4px;
+        }
+
+        #status-msg {
+            font-size: 11px;
+            color: var(--muted);
+            text-align: center;
+            margin-top: 8px;
+            min-height: 14px;
         }
     </style>
 </head>
@@ -138,30 +131,30 @@
         <div class="logo">🎌</div>
         <div class="header-info">
             <h1>漫譯 V2.0</h1>
-            <p>AI 漫畫翻譯擴充套件</p>
+            <p>Manga Translator</p>
         </div>
     </div>
 
     <div class="btn-group">
-        <button id="btn-open-panel" class="btn btn-panel">
-            <div class="btn-icon">📖</div>
+        <button id="btn-open-panel" class="btn btn-primary">
+            <span class="btn-icon">📖</span>
             <div class="btn-text">
                 開啟翻譯面板
-                <small>在目前分頁開啟側邊欄</small>
+                <small id="panel-desc">在側邊欄或新分頁開啟</small>
             </div>
         </button>
 
-        <button id="btn-open-settings" class="btn btn-settings">
-            <div class="btn-icon">⚙️</div>
+        <button id="btn-open-settings" class="btn">
+            <span class="btn-icon">⚙️</span>
             <div class="btn-text">
                 開啟設定
-                <small>API 金鑰、模型、語彙庫</small>
+                <small>API 金鑰與模型管理</small>
             </div>
         </button>
     </div>
 
     <div id="panel-not-available">
-        ⚠️ 此平台不支援側邊欄，請使用設定頁。
+        ⚠️ 行動端不支援側邊欄，將為您開啟新分頁。
     </div>
     <div id="status-msg"></div>
 

@@ -1,52 +1,56 @@
 /**
- * 漫譯 V2 - 彈出視窗邏輯
- * 仿照 uBlock Origin 的做法：popup 同時支援電腦版（開啟側邊欄）和行動版（開啟設定）
+ * 漫譯 V2 - 純淨版彈出視窗邏輯
  */
 
 const btnPanel    = document.getElementById('btn-open-panel');
 const btnSettings = document.getElementById('btn-open-settings');
 const statusMsg   = document.getElementById('status-msg');
 const noticeEl    = document.getElementById('panel-not-available');
+const panelDesc   = document.getElementById('panel-desc');
 
-// ── 開啟設定頁（兩個平台都可用）──
+// 錯誤處理預防
+window.onerror = function(msg) {
+    if (statusMsg) statusMsg.textContent = "Error: " + msg;
+    return false;
+};
+
+// ── 開啟設定頁 ──
 btnSettings.addEventListener('click', () => {
-    chrome.runtime.openOptionsPage();
-    window.close();
+    try {
+        chrome.runtime.openOptionsPage();
+        window.close();
+    } catch (e) {
+        console.error(e);
+    }
 });
 
-// ── 開啟側邊欄（電腦版才有效）──
+// ── 開啟翻譯面板 ──
 btnPanel.addEventListener('click', async () => {
-    // 嘗試取得當前分頁
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab) {
-        showStatus('❌ 無法取得當前分頁');
-        return;
-    }
-
-    // 嘗試呼叫 sidePanel.open（電腦版 Edge/Chrome）
-    if (chrome.sidePanel && typeof chrome.sidePanel.open === 'function') {
-        try {
-            await chrome.sidePanel.open({ tabId: tab.id });
-            window.close();
-        } catch (err) {
-            // 行動端：sidePanel.open 不被支援，顯示提示
-            console.warn('[Popup] sidePanel.open failed:', err.message);
-            showPanelNotAvailable();
+    try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
+        // 優先嘗試電腦版 SidePanel
+        if (chrome.sidePanel && typeof chrome.sidePanel.open === 'function') {
+            try {
+                await chrome.sidePanel.open({ tabId: tab.id });
+                window.close();
+                return;
+            } catch (err) {
+                console.warn('SidePanel open failed, falling back to mobile mode');
+            }
         }
-    } else {
-        // API 不存在（行動端或舊版瀏覽器）
-        showPanelNotAvailable();
+
+        // 行動端備援：直接開啟行動版分頁
+        const mobileUrl = chrome.runtime.getURL('src/mobile/index.html') + (tab ? '?sourceTabId=' + tab.id : '');
+        chrome.tabs.create({ url: mobileUrl });
+        window.close();
+
+    } catch (e) {
+        if (statusMsg) statusMsg.textContent = "啟動失敗: " + e.message;
     }
 });
 
-function showPanelNotAvailable() {
-    noticeEl.style.display = 'block';
-    btnPanel.disabled = true;
-    btnPanel.style.opacity = '0.5';
-    btnPanel.style.cursor = 'not-allowed';
-}
-
-function showStatus(msg) {
-    statusMsg.textContent = msg;
-    setTimeout(() => { statusMsg.textContent = ''; }, 3000);
+// 初始檢查：如果是行動端，調整文字
+if (!(chrome.sidePanel && typeof chrome.sidePanel.open === 'function')) {
+    if (panelDesc) panelDesc.textContent = "開啟行動版翻譯頁面";
 }
