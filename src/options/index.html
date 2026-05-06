@@ -2,6 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>漫譯 V2.0 - 設定</title>
     <style>
         :root {
@@ -147,6 +148,46 @@
             font-weight: bold;
         }
         .manga-meta { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+        /* 行動端響應式調整 */
+        @media (max-width: 600px) {
+            .tabs-header {
+                padding: 0 10px;
+                overflow-x: auto;
+                white-space: nowrap;
+                -webkit-overflow-scrolling: touch;
+            }
+            .tab-btn {
+                padding: 12px 15px;
+                font-size: 14px;
+                flex-shrink: 0;
+            }
+            .container {
+                margin: 0;
+                padding: 15px;
+                border-radius: 0;
+                box-shadow: none;
+            }
+            .settings-form {
+                max-width: 100%;
+            }
+            .api-key-row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .glossary-layout {
+                grid-template-columns: 1fr;
+            }
+            .manga-sidebar {
+                border-right: none;
+                border-bottom: 1px solid var(--border-color);
+                min-height: 200px;
+                max-height: 300px;
+            }
+            input[type="text"], input[type="password"], input[type="number"], textarea, select {
+                font-size: 16px; /* 防止 iOS 自動放大 */
+            }
+        }
     </style>
 </head>
 <body>
