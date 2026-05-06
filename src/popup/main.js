@@ -27,26 +27,40 @@ btnSettings.addEventListener('click', () => {
 // ── 開啟翻譯面板 ──
 btnPanel.addEventListener('click', async () => {
     try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (statusMsg) statusMsg.textContent = "正在啟動...";
+        
+        // 行動端 query 較寬鬆，不使用 currentWindow: true
+        const tabs = await chrome.tabs.query({ active: true });
+        const tab = tabs && tabs.length > 0 ? tabs[0] : null;
         
         // 優先嘗試電腦版 SidePanel
         if (chrome.sidePanel && typeof chrome.sidePanel.open === 'function') {
             try {
-                await chrome.sidePanel.open({ tabId: tab.id });
-                window.close();
-                return;
+                if (tab) {
+                    await chrome.sidePanel.open({ tabId: tab.id });
+                    window.close();
+                    return;
+                }
             } catch (err) {
-                console.warn('SidePanel open failed, falling back to mobile mode');
+                console.warn('SidePanel open failed, falling back to mobile tab');
             }
         }
 
         // 行動端備援：直接開啟行動版分頁
+        // 注意：在 Vite 打包後，路徑依然會維持 src/mobile/index.html
         const mobileUrl = chrome.runtime.getURL('src/mobile/index.html') + (tab ? '?sourceTabId=' + tab.id : '');
-        chrome.tabs.create({ url: mobileUrl });
+        
+        if (statusMsg) statusMsg.textContent = "正在跳轉至行動版頁面...";
+        
+        await chrome.tabs.create({ url: mobileUrl });
         window.close();
 
     } catch (e) {
-        if (statusMsg) statusMsg.textContent = "啟動失敗: " + e.message;
+        console.error('Popup Error:', e);
+        if (statusMsg) {
+            statusMsg.style.color = "red";
+            statusMsg.textContent = "啟動失敗: " + e.message;
+        }
     }
 });
 
