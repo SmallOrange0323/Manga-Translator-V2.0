@@ -4,7 +4,7 @@ import { extractMangaTitle } from '../utils/manga-utils.js';
 import { loadGlossary, saveGlossary, mergeGlossaryTerms, buildGlossaryPromptSnippet } from './glossary-manager.js';
 import { translateTexts, extractTermsFromTranslation, callGeminiAPIBatch } from './translate-api.js';
 import { log } from '../utils/logger.js';
-import { Semaphore } from '../utils/concurrency.js';
+import { Semaphore, KeyRateLimiter } from '../utils/concurrency.js';
 
 let navigationContext = {}; // tabId -> mangaKey
 let lastNovelUrlByTab = {}; // tabId -> url (防止重複觸發)
@@ -829,8 +829,7 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
                 // 批次失敗備援：並行逐張翻譯
                 log.warn('Background', `[批次] 批次處理失敗，啟動備援並行逐張翻譯 (Key 數量: ${state.apiKeys.length}): ${batchErr.message}`);
                 
-                // 【核心變更】使用 KeyRateLimiter 實現「每 Key 獨立冷卻」
-                const { KeyRateLimiter } = await import('../utils/concurrency.js');
+                // 【核心變更】使用 KeyRateLimiter 實現「每 Key 獨立冷卻」 (已改為靜態匯入)
                 const limiter = new KeyRateLimiter(state.apiKeys, requestDelay);
                 const fallbackResults = new Array(validItems.length).fill(null);
 
