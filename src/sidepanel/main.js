@@ -108,6 +108,13 @@ state.onChanged((changes) => {
     if (changes.novelProgress) {
         updateNovelStatus(changes.novelProgress.newValue);
     }
+
+    if (changes.isStopping) {
+        if (changes.isStopping.newValue) {
+            document.getElementById('mt-stop-btn').style.display = 'none';
+            document.getElementById('mt-start-btn').style.display = 'flex';
+        }
+    }
 });
 
 async function updateQuotaUI() {
@@ -166,6 +173,13 @@ document.getElementById('mt-start-btn').onclick = () => {
     });
 };
 
+document.getElementById('mt-stop-btn').onclick = () => {
+    chrome.runtime.sendMessage({ action: 'STOP_TRANSLATION' }, (res) => {
+        document.getElementById('mt-stop-btn').style.display = 'none';
+        document.getElementById('mt-start-btn').style.display = 'flex';
+    });
+};
+
 document.getElementById('mt-options-btn').onclick = () => {
     chrome.runtime.openOptionsPage();
 };
@@ -210,6 +224,11 @@ document.getElementById('mt-batch-trans-btn').onclick = () => {
                 images: selectedUrls
             }
         });
+        
+        // 顯示停止按鈕
+        document.getElementById('mt-stop-btn').style.display = 'flex';
+        document.getElementById('mt-start-btn').style.display = 'none';
+        
         clearPreviewList();
     });
 };

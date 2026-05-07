@@ -11,12 +11,15 @@ let lastNovelUrlByTab = {}; // tabId -> url (防止重複觸發)
 let capturedScreenshotForSelection = null;
 let pendingBatchJobs = {}; // resultTabId -> { sourceTabId, images }
 let navLinksStore = {}; // tabId -> { prev, next }
+let isStopping = false; // 強制停止旗標
 
 log.info('Background', '漫譯 V2 背景服務程式已啟動');
 
 // 當 Service Worker 啟動或重啟時，初次化狀態
 state.init().then(async () => {
     log.info('Background', '狀態載入完成，檢查待處理任務...');
+    await state.set('isStopping', false); // 重置停止狀態
+    isStopping = false;
     
     // 範例：檢查是否有遺留的小說翻譯任務
     const queue = await state.get('novelQueue', []);
@@ -43,6 +46,12 @@ async function processNovelQueue() {
             const queue = Array.isArray(rawQueue) ? rawQueue : Object.values(rawQueue || {});
             
             if (queue.length === 0) break;
+            
+            // 檢查是否中斷
+            if (isStopping) {
+                log.warn('Background', '小說翻譯任務已被強制停止');
+                break;
+            }
 
             const task = queue.shift();
             await state.set('novelQueue', queue);
@@ -210,6 +219,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'PING') {
     sendResponse({ status: 'PONG', version: '2.0.0' });
   }
+
+  if (message.action === 'STOP_TRANSLATION') {
+      isStopping = true;
+      state.set('isStopping', true);
+      log.warn('Background', '收到停止指令，正在中斷所有任務...');
+      sendResponse({ status: 'stopping' });
+      return false;
+  }
   
   if (message.action === 'ADD_TO_QUEUE') {
     const payload = message.payload;
@@ -232,6 +249,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'START_MANGA_BATCH_PC_MODE') {
       let { tabId, images, mobile, navLinks } = message.payload;
       if (!tabId && sender.tab) tabId = sender.tab.id;
+      
+      isStopping = false; // 啟動新任務時重置停止旗標
+      state.set('isStopping', false);
       
       // 紀錄導航連結
       if (navLinks) navLinksStore[tabId] = navLinks;
@@ -707,6 +727,12 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
         const totalBatches = Math.ceil(images.length / batchSize);
         const currentBatchIndex = Math.floor(i / batchSize) + 1;
 
+        // 檢查是否停止
+        if (isStopping) {
+            log.warn('Background', '漫畫翻譯任務已被強制停止');
+            break;
+        }
+
         // 進度顯示
         const progressText = batchSize > 1
             ? `第 ${currentBatchIndex} / ${totalBatches} 批 (圖片 ${i + 1}~${Math.min(i + batchSize, images.length)})`
@@ -753,6 +779,11 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
             try {
                 if (batchSize > 1) {
                     // ── 批次路徑：多圖打包成一個 API 請求 ──
+                    // 使用者的等待時間在此套用
+                    if (i > 0 && requestDelay > 0) {
+                        await new Promise(r => setTimeout(r, requestDelay));
+                    }
+                    
                     // 請求大小監管：若總 Base64 長度超過 15MB，拆分為兩個子批次
                     const PAYLOAD_LIMIT = 15_000_000;
                     const totalPayload = validItems.reduce((sum, v) => sum + v.b64.length, 0);
@@ -795,18 +826,23 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
                     }
                 }
             } catch (batchErr) {
-                // 批次失敗備援：並行逐張翻譯 (Semaphore 已於頂層靜態匯入)
-                log.warn('Background', `[批次] 批次處理失敗，啟動備援並行逐張翻譯 (並行度: ${concurrency}): ${batchErr.message}`);
-                const fallbackSemaphore = new Semaphore(concurrency);
+                // 批次失敗備援：並行逐張翻譯
+                log.warn('Background', `[批次] 批次處理失敗，啟動備援並行逐張翻譯 (Key 數量: ${state.apiKeys.length}): ${batchErr.message}`);
+                
+                // 【核心變更】使用 KeyRateLimiter 實現「每 Key 獨立冷卻」
+                const { KeyRateLimiter } = await import('../utils/concurrency.js');
+                const limiter = new KeyRateLimiter(state.apiKeys, requestDelay);
                 const fallbackResults = new Array(validItems.length).fill(null);
 
                 await Promise.all(validItems.map(async (item, k) => {
-                    await fallbackSemaphore.acquire();
+                    const apiKey = await limiter.acquireKey(); // 取得冷卻完畢的 Key
                     try {
-                        // 【最高指令】救援行動強制僅使用備援模型 (例如 Gemma)
-                        // 不再回傳主要模型，確保在任何失敗後都能獲得最穩定的備援體驗
+                        // 檢查是否中斷
+                        if (isStopping) return;
+
                         const result = await translateTexts([], {
                             model: fallbackModelName,
+                            apiKey: apiKey, // 指定該 Key
                             prompt: finalPrompt,
                             glossarySnippet,
                             imageBase64: item.b64,
@@ -818,10 +854,8 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
                         });
                         fallbackResults[k] = result;
                     } catch (singleErr) {
-                        log.warn('Background', `[備援] 第 ${item.originalIdx + 1} 張翻譯失敗: ${singleErr.message}`);
+                        log.warn('Background', `[備援] 第 ${item.originalIdx + 1} 張翻譯失敗 (Key: ${state.getApiKeyAlias(apiKey)}): ${singleErr.message}`);
                         fallbackResults[k] = { error: singleErr.message };
-                    } finally {
-                        fallbackSemaphore.release();
                     }
                 }));
 
