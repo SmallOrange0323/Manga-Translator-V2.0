@@ -212,7 +212,9 @@ export function initMobileMode() {
     statusText.textContent = '正在掃描圖片...';
     grid.innerHTML = '';
     
-    const images = crawlImages();
+    const results = crawlImages();
+    const images = results.images;
+    const navLinks = results.navLinks;
     foundImages = images;
     
     if (images.length === 0) {
@@ -298,6 +300,7 @@ export function initMobileMode() {
       action: 'START_MANGA_BATCH_PC_MODE', 
       payload: { 
         images: selected,
+        navLinks: results.navLinks, // 從剛才掃描到的結果取用
         mobile: true // 強制標記為行動端
       } 
     });
@@ -308,6 +311,14 @@ export function initMobileMode() {
     if (request.action === 'translateNovelPage' || request.action === 'AUTO_TRANSLATE_PAGE') {
         startNovelTranslation();
         sendResponse({ started: true });
+    }
+
+    if (request.action === 'crawlImages') {
+        const results = crawlImages();
+        sendResponse({ 
+            images: results.images, 
+            navLinks: results.navLinks 
+        });
     }
   });
 

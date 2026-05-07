@@ -30,8 +30,11 @@ export function initDesktopMode() {
     }
 
     if (request.action === 'crawlImages') {
-        const images = crawlImages();
-        sendResponse({ images });
+        const results = crawlImages();
+        sendResponse({ 
+            images: results.images, 
+            navLinks: results.navLinks 
+        });
     }
 
     if (request.action === 'fetchBase64') {
