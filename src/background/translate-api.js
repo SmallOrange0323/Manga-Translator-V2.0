@@ -16,7 +16,7 @@ export async function translateTexts(texts, options = {}) {
     if (!state.isInitialized) await state.init();
     const {
         model = 'gemini-1.5-flash',
-        fallbackModel = 'gemini-1.5-pro',
+        fallbackModel = null,
         prompt = 'Translate the following texts to Traditional Chinese. Return only JSON.',
         schema = null,
         glossarySnippet = '' // 加入術語對照表片段
@@ -111,9 +111,9 @@ export async function translateTexts(texts, options = {}) {
                         error: apiError 
                     });
 
-                    // 如果是第一次失敗，且設定了備援模型，則立即切換
-                    if (attempt === 1 && fallbackModel && currentModel !== fallbackModel) {
-                        log.info('TranslateAPI', `偵測到主要模型異常 (${statusCode})，立即切換至備援模型: ${fallbackModel}`);
+                    // 只有在明確設定了與主要模型不同的備援模型時，才進行切換
+                    if (attempt === 1 && fallbackModel && fallbackModel !== currentModel) {
+                        log.info('TranslateAPI', `偵測到主要模型異常 (${statusCode})，立即切換至使用者設定的備援模型: ${fallbackModel}`);
                         currentModel = fallbackModel;
                     }
 
@@ -139,8 +139,8 @@ export async function translateTexts(texts, options = {}) {
             lastError = err;
             
             // 如果是 catch 到的異常 (非 response.ok)，也檢查是否需要切換模型
-            if (attempt === 1 && fallbackModel && currentModel !== fallbackModel) {
-                log.info('TranslateAPI', `連線發生異常，立即切換至備援模型: ${fallbackModel}`);
+            if (attempt === 1 && fallbackModel && fallbackModel !== currentModel) {
+                log.info('TranslateAPI', `連線發生異常，立即切換至使用者設定的備援模型: ${fallbackModel}`);
                 currentModel = fallbackModel;
             }
             

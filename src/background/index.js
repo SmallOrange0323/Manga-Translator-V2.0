@@ -645,7 +645,7 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
 
     // 3. 讀取翻譯設定（在並行前統一讀取，避免重複 I/O）
     const modelName = await state.get('modelName', 'gemini-1.5-flash');
-    const fallbackModelName = await state.get('fallbackModelName', 'gemini-1.5-pro');
+    const fallbackModelName = await state.get('fallbackModelName', null);
     const customPrompt = await state.get('customPrompt', Constants.DEFAULT_PROMPT_ONE_STEP);
     let finalPrompt = customPrompt;
     if (modelName.toLowerCase().includes('gemma')) {

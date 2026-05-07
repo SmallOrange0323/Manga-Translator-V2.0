@@ -74,7 +74,7 @@ async function initGeneralSettings() {
         ['translationMode', 'one-step'],
         ['ocrBatchSize', 5],
         ['modelName', 'gemini-1.5-flash'],
-        ['fallbackModelName', 'gemini-1.5-pro'],
+        ['fallbackModelName', ''],
         ['useFallbackModelOnBatchRetry', false],
         ['requestDelay', 4000],
         ['imageMaxDimension', 1024],
