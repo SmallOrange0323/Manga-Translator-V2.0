@@ -880,7 +880,11 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
                 allBatchResults.push(...(res.results || []));
                 chrome.tabs.sendMessage(resultTabId, {
                     action: 'appendResult',
-                    data: { image: imgSrc, results: res.results, usedModelName: modelName }
+                    data: { 
+                        image: imgSrc, 
+                        results: res.results, 
+                        usedModelName: res.usedModelName || modelName 
+                    }
                 });
             }
         }

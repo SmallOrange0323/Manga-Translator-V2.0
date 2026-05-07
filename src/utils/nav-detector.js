@@ -12,22 +12,27 @@ export function detectNavigationLinks() {
     for (const link of links) {
         const text = (link.innerText || link.title || '').toLowerCase().trim();
         const href = link.href;
+        const rel = (link.getAttribute('rel') || '').toLowerCase();
+        const className = (link.className || '');
 
         // 過濾掉明顯不是導航的連結
         if (!href || href.startsWith('javascript:') || href === window.location.href || href.includes('#')) continue;
 
-        // 偵測下一話
-        if (!navLinks.next && NEXT_KEYWORDS.some(k => text.includes(k))) {
-            // 額外檢查：排除長度太短的純符號（除非它在導航列內）
-            if (text.length > 0 || link.closest('.nav, .navigation, .pagination, .chapter-nav')) {
-                navLinks.next = href;
+        // 偵測下一話 (增加 rel="next" 與常見 class 判斷)
+        if (!navLinks.next) {
+            if (rel === 'next' || NEXT_KEYWORDS.some(k => text.includes(k)) || /next-?chapter|next-?page/i.test(className)) {
+                if (text.length > 0 || link.querySelector('img, svg') || link.closest('.nav, .navigation, .pagination, .chapter-nav')) {
+                    navLinks.next = href;
+                }
             }
         }
 
-        // 偵測上一話
-        if (!navLinks.prev && PREV_KEYWORDS.some(k => text.includes(k))) {
-            if (text.length > 0 || link.closest('.nav, .navigation, .pagination, .chapter-nav')) {
-                navLinks.prev = href;
+        // 偵測上一話 (增加 rel="prev" 與常見 class 判斷)
+        if (!navLinks.prev) {
+            if (rel === 'prev' || rel === 'previous' || PREV_KEYWORDS.some(k => text.includes(k)) || /prev-?chapter|prev-?page/i.test(className)) {
+                if (text.length > 0 || link.querySelector('img, svg') || link.closest('.nav, .navigation, .pagination, .chapter-nav')) {
+                    navLinks.prev = href;
+                }
             }
         }
 

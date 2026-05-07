@@ -275,60 +275,56 @@ function isSafeUrl(url) {
 function updateNavUI(navLinks) {
     const { prev, next } = navLinks;
     const footer = document.getElementById('nav-footer');
-    const header = document.getElementById('nav-header');
-    const prevBtns = [document.getElementById('prev-btn'), document.getElementById('prev-btn-top')];
-    const nextBtns = [document.getElementById('next-btn'), document.getElementById('next-btn-top')];
+    const prevBtn = document.getElementById('prev-btn');
+    const nextBtn = document.getElementById('next-btn');
     const safePrev = isSafeUrl(prev) ? prev : null;
     const safeNext = isSafeUrl(next) ? next : null;
 
     if (safePrev || safeNext) {
         if (footer) footer.style.display = 'flex';
-        if (header) header.style.display = 'flex';
 
-        if (safePrev) {
-            prevBtns.forEach(btn => {
-                if (!btn) return;
-                btn.style.display = 'inline-flex';
-                btn.onclick = () => {
-                    prevBtns.concat(nextBtns).forEach(b => { if(b) b.disabled = true; });
-                    btn.classList.add('is-navigating');
-                    btn.innerHTML = btn.id.includes('top') ? `跳轉中...` : `正在跳轉至上一話...`;
-                    chrome.runtime.sendMessage({ 
-                        action: "navigateAndTranslate", 
-                        url: safePrev,
-                        tabId: sourceTabId,
-                        mangaKey: activeMangaKey
-                    });
-                };
-                btn.title = safePrev;
-            });
-        } else {
-            prevBtns.forEach(btn => { if(btn) btn.style.display = 'none'; });
+        if (safePrev && prevBtn) {
+            prevBtn.style.display = 'inline-flex';
+            prevBtn.onclick = () => {
+                prevBtn.disabled = true;
+                if(nextBtn) nextBtn.disabled = true;
+                prevBtn.classList.add('is-navigating');
+                prevBtn.innerHTML = `正在跳轉至上一話...`;
+                chrome.runtime.sendMessage({ 
+                    action: "navigateAndTranslate", 
+                    url: safePrev,
+                    tabId: sourceTabId,
+                    mangaKey: activeMangaKey
+                });
+            };
+            prevBtn.title = safePrev;
+        } else if (prevBtn) {
+            prevBtn.style.display = 'none';
         }
 
-        if (safeNext) {
-            nextBtns.forEach(btn => {
-                if (!btn) return;
-                btn.style.display = 'inline-flex';
-                btn.onclick = () => {
-                    prevBtns.concat(nextBtns).forEach(b => { if(b) b.disabled = true; });
-                    btn.classList.add('is-navigating');
-                    btn.innerHTML = btn.id.includes('top') ? `跳轉中...` : `正在跳轉至下一話...`;
-                    
-                    setTimeout(resetNavButtons, 10000);
+        if (safeNext && nextBtn) {
+            nextBtn.style.display = 'inline-flex';
+            nextBtn.onclick = () => {
+                nextBtn.disabled = true;
+                if(prevBtn) prevBtn.disabled = true;
+                nextBtn.classList.add('is-navigating');
+                nextBtn.innerHTML = `正在跳轉至下一話...`;
+                
+                setTimeout(resetNavButtons, 10000);
 
-                    chrome.runtime.sendMessage({ 
-                        action: "navigateAndTranslate", 
-                        url: safeNext,
-                        tabId: sourceTabId,
-                        mangaKey: activeMangaKey
-                    });
-                };
-                btn.title = safeNext;
-            });
-        } else {
-            nextBtns.forEach(btn => { if(btn) btn.style.display = 'none'; });
+                chrome.runtime.sendMessage({ 
+                    action: "navigateAndTranslate", 
+                    url: safeNext,
+                    tabId: sourceTabId,
+                    mangaKey: activeMangaKey
+                });
+            };
+            nextBtn.title = safeNext;
+        } else if (nextBtn) {
+            nextBtn.style.display = 'none';
         }
+    } else {
+        if (footer) footer.style.display = 'none';
     }
 }
 

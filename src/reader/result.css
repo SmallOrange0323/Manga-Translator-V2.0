@@ -1362,8 +1362,8 @@ body.theme-priconne .skeleton-anim {
         font-size: 13px;
     }
 
-    /* ── Nav Footer（隱藏，改由 JS 控制） ── */
-    .nav-footer { display: none; }
+    /* ── Nav Footer ── */
+    .nav-footer { display: flex; padding-bottom: 40px; }
 
     /* ── Skeleton ── */
     .skeleton-card { display: block; }
