@@ -1,248 +1,164 @@
-/**
- * 漫譯 V2 - 行動端核心邏輯
- */
+import { log } from '../utils/logger.js';
 
-const state = {
-    sourceTabId: null,
-    images: [],
-    selectedIndices: new Set()
-};
+// 全域狀態
+let sourceTabId = null;
+let foundImages = [];
+let selectedIndices = new Set();
 
 // UI 元素
-const views = {
-    loading: document.getElementById('view-loading'),
-    picker: document.getElementById('view-picker'),
-    reader: document.getElementById('view-reader')
-};
+const statusBar = document.getElementById('status-bar');
+const imageGrid = document.getElementById('image-grid');
+const imageCountBadge = document.getElementById('image-count-badge');
+const btnSelectAll = document.getElementById('btn-select-all');
+const btnRefresh = document.getElementById('btn-refresh');
+const btnTranslate = document.getElementById('btn-start-translate');
+const selectedCountText = document.getElementById('selected-count');
+const btnOptions = document.getElementById('btn-open-options');
 
-const elements = {
-    statusBadge: document.getElementById('status-badge'),
-    imageGrid: document.getElementById('image-grid'),
-    scanCount: document.getElementById('scan-count'),
-    selectedCount: document.getElementById('selected-count'),
-    btnSelectAll: document.getElementById('btn-select-all'),
-    btnStartTranslate: document.getElementById('btn-start-translate'),
-    btnBackToPicker: document.getElementById('btn-back-to-picker'),
-    btnManualScan: document.getElementById('btn-manual-scan'),
-    loadingText: document.getElementById('loading-text'),
-    readerProgress: document.getElementById('reader-progress'),
-    resultsList: document.getElementById('results-list'),
-    completeBanner: document.getElementById('complete-banner'),
-    btnOpenOptions: document.getElementById('btn-open-options')
-};
-
-// 初始化
+/**
+ * 初始化
+ */
 async function init() {
-    console.log('[Mobile] Initializing...');
+    log.info('Mobile-Panel', 'Initializing mobile panel main...');
+    
+    // 1. 從 URL 獲取 sourceTabId
     const params = new URLSearchParams(window.location.search);
-    state.sourceTabId = parseInt(params.get('sourceTabId'));
+    sourceTabId = parseInt(params.get('sourceTabId'));
 
-    if (!state.sourceTabId) {
-        showError('找不到來源分頁資訊，請從漫畫分頁重新開啟。');
+    if (!sourceTabId) {
+        updateStatus('❌ 錯誤：未找到來源分頁 ID', true);
         return;
     }
 
-    startImageScan();
+    // 2. 綁定按鈕事件
+    btnRefresh.addEventListener('click', () => scanImages());
+    btnSelectAll.addEventListener('click', () => toggleSelectAll());
+    btnTranslate.addEventListener('click', () => startTranslation());
+    btnOptions.addEventListener('click', () => chrome.runtime.openOptionsPage());
+
+    // 3. 執行第一次掃描
+    scanImages();
 }
 
-// 切換視圖
-function showView(viewName) {
-    Object.keys(views).forEach(name => {
-        views[name].classList.toggle('active', name === viewName);
-    });
-}
-
-// 掃描圖片
-function startImageScan() {
-    showView('loading');
-    elements.statusBadge.textContent = '掃描中';
+/**
+ * 掃描來源頁面的圖片
+ */
+async function scanImages() {
+    updateStatus('正在掃描來源分頁的圖片...');
+    imageGrid.innerHTML = '<div class="empty-msg">掃描中...</div>';
     
-    chrome.runtime.sendMessage({
-        action: 'MOBILE_CRAWL_IMAGES',
-        payload: { sourceTabId: state.sourceTabId }
-    }, (response) => {
-        if (chrome.runtime.lastError) {
-            console.error('[Mobile] Scan failed:', chrome.runtime.lastError);
-            showError('通訊失敗，請重整頁面。');
-            return;
-        }
-
-        if (response && response.images && response.images.length > 0) {
-            state.images = response.images;
-            renderPicker();
-            showView('picker');
-            elements.statusBadge.textContent = '待機';
+    try {
+        // 向漫畫頁面發送 crawlImages 請求
+        const response = await chrome.tabs.sendMessage(sourceTabId, { action: 'crawlImages' });
+        
+        if (response && response.images) {
+            foundImages = response.images;
+            renderImageGrid();
+            updateStatus(`掃描完成，找到 ${foundImages.length} 張圖片`);
         } else {
-            elements.btnManualScan.style.display = 'block';
-            showError('未在來源分頁找到圖片，請確認漫畫已完全載入。');
+            updateStatus('未找到圖片，請確認該頁面是否包含漫畫圖片', true);
+            imageGrid.innerHTML = '<div class="empty-msg">未找到圖片</div>';
         }
-    });
+    } catch (err) {
+        log.error('Mobile-Panel', 'Scan failed', err);
+        updateStatus('❌ 掃描失敗：請確認漫畫分頁是否已關閉或重新整理', true);
+        imageGrid.innerHTML = '<div class="empty-msg">掃描失敗</div>';
+    }
 }
 
-// 渲染選圖器
-function renderPicker() {
-    elements.imageGrid.innerHTML = '';
-    elements.scanCount.textContent = `找到 ${state.images.length} 張圖片`;
-    
-    state.images.forEach((img, index) => {
-        const src = img.src || img;
+/**
+ * 渲染圖片格線
+ */
+function renderImageGrid() {
+    imageGrid.innerHTML = '';
+    imageCountBadge.textContent = foundImages.length;
+    selectedIndices.clear();
+
+    if (foundImages.length === 0) {
+        imageGrid.innerHTML = '<div class="empty-msg">未找到圖片</div>';
+        updateUIState();
+        return;
+    }
+
+    foundImages.forEach((img, index) => {
         const item = document.createElement('div');
         item.className = 'image-item';
-        item.dataset.index = index;
+        item.innerHTML = `<img src="${img.url}" loading="lazy">`;
         
-        const isSelected = state.selectedIndices.has(index);
-        if (isSelected) item.classList.add('selected');
-
-        item.innerHTML = `
-            <input type="checkbox" class="image-checkbox" ${isSelected ? 'checked' : ''}>
-            <img src="${src}" loading="lazy">
-            <div class="image-overlay">頁面 ${index + 1}</div>
-        `;
-
-        item.onclick = (e) => {
-            const checkbox = item.querySelector('.image-checkbox');
-            if (e.target !== checkbox) {
-                checkbox.checked = !checkbox.checked;
-            }
-            toggleSelection(index, checkbox.checked);
-        };
-
-        elements.imageGrid.appendChild(item);
+        item.addEventListener('click', () => toggleImageSelection(index, item));
+        imageGrid.appendChild(item);
     });
-    updateFooter();
+
+    updateUIState();
 }
 
-function toggleSelection(index, isChecked) {
-    if (isChecked) {
-        state.selectedIndices.add(index);
+/**
+ * 切換圖片選取狀態
+ */
+function toggleImageSelection(index, element) {
+    if (selectedIndices.has(index)) {
+        selectedIndices.delete(index);
+        element.classList.remove('selected');
     } else {
-        state.selectedIndices.delete(index);
+        selectedIndices.add(index);
+        element.classList.add('selected');
     }
-    
-    const item = elements.imageGrid.querySelector(`.image-item[data-index="${index}"]`);
-    if (item) item.classList.toggle('selected', isChecked);
-    
-    updateFooter();
+    updateUIState();
 }
 
-function updateFooter() {
-    elements.selectedCount.textContent = state.selectedIndices.size;
-    elements.btnStartTranslate.disabled = state.selectedIndices.size === 0;
+/**
+ * 全選/取消全選
+ */
+function toggleSelectAll() {
+    const items = imageGrid.querySelectorAll('.image-item');
+    if (selectedIndices.size === foundImages.length) {
+        selectedIndices.clear();
+        items.forEach(el => el.classList.remove('selected'));
+    } else {
+        foundImages.forEach((_, i) => selectedIndices.add(i));
+        items.forEach(el => el.classList.add('selected'));
+    }
+    updateUIState();
 }
 
-// 翻譯觸發
-elements.btnStartTranslate.onclick = () => {
-    const selectedImages = Array.from(state.selectedIndices)
-        .sort((a, b) => a - b)
-        .map(idx => state.images[idx]);
+/**
+ * 更新 UI 狀態 (按鈕與計數)
+ */
+function updateUIState() {
+    const count = selectedIndices.size;
+    selectedCountText.textContent = `(${count})`;
+    btnTranslate.disabled = count === 0;
+    btnSelectAll.textContent = (count === foundImages.length && count > 0) ? '取消全選' : '全選';
+}
 
-    elements.resultsList.innerHTML = '';
-    elements.completeBanner.style.display = 'none';
-    elements.readerProgress.textContent = '準備中...';
+/**
+ * 更新狀態列
+ */
+function updateStatus(msg, isError = false) {
+    statusBar.textContent = msg;
+    statusBar.style.color = isError ? '#ff3b30' : 'inherit';
+}
+
+/**
+ * 開始翻譯 (目前的邏輯：串接至背景腳本的批次處理)
+ */
+async function startTranslation() {
+    const selectedImages = Array.from(selectedIndices).map(i => foundImages[i]);
+    updateStatus(`正在準備翻譯 ${selectedImages.length} 張圖片...`);
     
-    showView('reader');
-    elements.statusBadge.textContent = '翻譯中';
-
+    // 將選取的圖片與來源 ID 發送給 Background
+    // 這裡我們暫時重用 PC 版的 BATCH 邏輯，但未來可以為 Mobile 建立專屬邏輯
     chrome.runtime.sendMessage({
-        action: 'START_MANGA_BATCH_MOBILE_MODE',
-        payload: { 
-            sourceTabId: state.sourceTabId,
-            images: selectedImages 
+        action: 'START_MANGA_BATCH_PC_MODE',
+        payload: {
+            tabId: sourceTabId,
+            images: selectedImages
         }
     });
-};
-
-// 監聽背景訊息
-chrome.runtime.onMessage.addListener((message) => {
-    if (message.action === 'updateProgress') {
-        elements.readerProgress.textContent = `進度: ${message.current}`;
-    }
-
-    if (message.action === 'appendResult') {
-        appendReaderResult(message.data);
-    }
-
-    if (message.action === 'batchComplete') {
-        elements.statusBadge.textContent = '完成';
-        elements.readerProgress.textContent = '所有翻譯已完成';
-        elements.completeBanner.style.display = 'flex';
-    }
-
-    if (message.action === 'clearResults') {
-        elements.resultsList.innerHTML = '';
-    }
-});
-
-// 渲染圖文交錯結果
-function appendReaderResult(data) {
-    const group = document.createElement('div');
-    group.className = 'result-group';
-
-    // 1. 圖片
-    const img = document.createElement('img');
-    img.className = 'result-image';
-    img.src = data.image;
-    group.appendChild(img);
-
-    // 2. 翻譯卡片
-    if (data.error) {
-        const err = document.createElement('div');
-        err.className = 'error-text';
-        err.textContent = `翻譯失敗: ${data.error}`;
-        group.appendChild(err);
-    } else if (data.results && data.results.length > 0) {
-        const card = document.createElement('div');
-        card.className = 'translation-card';
-        
-        data.results.forEach(res => {
-            const item = document.createElement('div');
-            item.className = 'translation-item';
-            item.innerHTML = `
-                <span class="orig-text">${res.original}</span>
-                <span class="trans-text">${res.translation}</span>
-            `;
-            card.appendChild(item);
-        });
-        group.appendChild(card);
-    }
-
-    elements.resultsList.appendChild(group);
-}
-
-// 其他按鈕事件
-elements.btnSelectAll.onclick = () => {
-    const allSelected = state.selectedIndices.size === state.images.length;
-    if (allSelected) {
-        state.selectedIndices.clear();
-    } else {
-        state.images.forEach((_, i) => state.selectedIndices.add(i));
-    }
-    renderPicker();
-};
-
-elements.btnBackToPicker.onclick = () => {
-    showView('picker');
-    elements.statusBadge.textContent = '待機';
-};
-
-elements.btnManualScan.onclick = () => {
-    startImageScan();
-};
-
-elements.btnOpenOptions.onclick = () => {
-    chrome.runtime.openOptionsPage();
-};
-
-
-
-// 以頁面內訊息取代 alert（手機體驗更佳）
-function showError(msg) {
-    console.error('[Mobile Error]', msg);
-    // 顯示在 loading 視圖的文字區
-    if (elements.loadingText) {
-        elements.loadingText.textContent = msg;
-        elements.loadingText.style.color = '#f43f5e';
-    }
+    
+    // 跳轉到結果頁面 (目前重用 PC 版的 result.html)
+    // 注意：Background 會自動處理跳轉，所以這裡我們只需要等待或顯示進度
+    updateStatus('指令已送出，正在開啟結果頁面...');
 }
 
 // 啟動
