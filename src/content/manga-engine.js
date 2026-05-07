@@ -243,13 +243,18 @@ export function crawlImages() {
             try { url = img.toDataURL('image/jpeg'); } catch(e) {}
         }
         
+        // 過濾條件：
+        const isTooSmall = (width < 300 || height < 300);
+        const junkKeywords = ['emoji', 'avatar', 'icon', 'logo', 'ads', 'button', 'banner'];
+        const isJunk = junkKeywords.some(key => url.toLowerCase().includes(key));
+        
         // 判斷是否在漫畫容器內
         const isInMangaContainer = MANGA_CONTAINERS.some(selector => img.closest(selector));
 
-        // 過濾條件：
         // 1. 尺寸夠大 (排除小圖示)
-        // 2. 或明確在漫畫容器內 (強行繞過 Lazy Load 導致的尺寸 0x0 誤判)
-        if ((width >= 300 && height >= 400) || isInMangaContainer) {
+        // 2. 或明確在漫畫容器內
+        // 3. 且網址不含雜訊關鍵字
+        if (((!isTooSmall) || isInMangaContainer) && !isJunk) {
             // 過濾掉明顯是 Logo 或小 Icon 的 base64 碎圖
             if (url && !url.includes('data:image/svg+xml') && !url.includes('data:image/gif;base64,R0lGOD')) {
                 mangaImages.push({

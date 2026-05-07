@@ -1,11 +1,28 @@
 import { log } from '../utils/logger.js';
+import { state } from '../utils/state.js';
 import { crawlImages } from './manga-engine.js';
+import { getNovelParagraphs, insertPlaceholders, injectTranslation } from './novel-engine.js';
 
 /**
  * 啟動行動端專用 UI 系統 (Overlay Drawer 模式)
  */
 export function initMobileMode() {
   log.info('Content-Mobile', 'Initializing Mobile Overlay Drawer...');
+
+  // 1. 小說模式連動：自動更新段落翻譯結果
+  state.onChanged((changes) => {
+    if (changes.novelResults) {
+        const results = changes.novelResults.newValue;
+        log.info('Content-Mobile', `收到小說翻譯更新，結果筆數: ${results?.length || 0}`);
+        if (results && results.length > 0) {
+            const lastResult = results[results.length - 1];
+            log.info('Content-Mobile', `嘗試注入第 ${lastResult.idx} 段翻譯`);
+            if (!lastResult.isManga) {
+                injectTranslation(lastResult.idx, lastResult.translation);
+            }
+        }
+    }
+  });
 
   // 1. 建立 Shadow DOM 容器
   const container = document.createElement('div');
@@ -157,7 +174,13 @@ export function initMobileMode() {
       <button class="close-btn">&times;</button>
     </div>
     <div class="drawer-content">
-      <div id="status-text" style="margin-bottom:12px; font-size:14px; opacity:0.7;">正在掃描圖片...</div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div id="status-text" style="font-size:14px; opacity:0.7;">正在掃描圖片...</div>
+        <div class="bulk-actions" style="display:flex; gap:8px;">
+          <button id="select-all-btn" style="background:none; border:1px solid var(--edge-blue); color:var(--edge-blue); font-size:12px; padding:4px 8px; border-radius:4px; cursor:pointer;">全選</button>
+          <button id="deselect-all-btn" style="background:none; border:1px solid rgba(128,128,128,0.5); color:var(--text-main); font-size:12px; padding:4px 8px; border-radius:4px; cursor:pointer;">取消</button>
+        </div>
+      </div>
       <div class="image-grid" id="drawer-grid"></div>
     </div>
     <div class="drawer-footer">
@@ -193,16 +216,38 @@ export function initMobileMode() {
     foundImages = images;
     
     if (images.length === 0) {
-      statusText.textContent = '未找到圖片';
+      const paragraphs = getNovelParagraphs();
+      if (paragraphs.length > 0) {
+        statusText.textContent = `偵測到 ${paragraphs.length} 段小說內容`;
+        grid.innerHTML = `
+          <div style="grid-column: 1/-1; padding: 40px 20px; text-align: center;">
+            <div style="font-size: 48px; margin-bottom: 16px;">📖</div>
+            <div style="color: var(--text-main); margin-bottom: 24px;">這看起來是一篇小說，是否要開始翻譯？</div>
+            <button id="start-novel-btn" style="background: var(--edge-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; width: 100%;">
+              開始全頁翻譯
+            </button>
+          </div>
+        `;
+        grid.querySelector('#start-novel-btn').onclick = () => {
+          toggleDrawer(false);
+          startNovelTranslation();
+        };
+      } else {
+        statusText.textContent = '未找到可翻譯內容';
+      }
+      updateFooter();
       return;
     }
     
     statusText.textContent = `找到 ${images.length} 張圖片`;
+    
+    // 預設全選
+    selectedIndices.clear();
+    images.forEach((_, i) => selectedIndices.add(i));
+
     images.forEach((img, i) => {
       const item = document.createElement('div');
-      item.className = 'img-item';
-      // 修正：manga-engine 回傳的是 .src 而非 .url
-      // 加上 referrerpolicy="no-referrer" 繞過 Rawkuma 等網站的防盜連
+      item.className = 'img-item selected'; // 預設加上 selected class
       item.innerHTML = `<img src="${img.src}" loading="lazy" referrerpolicy="no-referrer" style="width:100%; height:100%; object-fit:cover;">`;
       item.onclick = () => {
         if (selectedIndices.has(i)) {
@@ -216,6 +261,19 @@ export function initMobileMode() {
       };
       grid.appendChild(item);
     });
+    updateFooter();
+  };
+
+  const selectAll = () => {
+    foundImages.forEach((_, i) => selectedIndices.add(i));
+    drawer.querySelectorAll('.img-item').forEach(el => el.classList.add('selected'));
+    updateFooter();
+  };
+
+  const deselectAll = () => {
+    selectedIndices.clear();
+    drawer.querySelectorAll('.img-item').forEach(el => el.classList.remove('selected'));
+    updateFooter();
   };
 
   const updateFooter = () => {
@@ -228,19 +286,53 @@ export function initMobileMode() {
   triggerBtn.onclick = () => toggleDrawer(true);
   overlay.onclick = () => toggleDrawer(false);
   drawer.querySelector('.close-btn').onclick = () => toggleDrawer(false);
+  drawer.querySelector('#select-all-btn').onclick = selectAll;
+  drawer.querySelector('#deselect-all-btn').onclick = deselectAll;
   
   drawer.querySelector('#drawer-submit').onclick = () => {
     const selected = Array.from(selectedIndices).map(i => foundImages[i]);
-    chrome.runtime.sendMessage({
-      action: 'START_MANGA_BATCH_PC_MODE',
-      payload: {
-          tabId: null,   // 背景腳本會補上 sender.tab.id
-          images: selected,
-          mobile: true   // 告知背景腳本這是行動端發起，在結果頁 URL 加上 mobile=1
-      }
-    });
+    if (selected.length === 0) return;
+    
     toggleDrawer(false);
+    chrome.runtime.sendMessage({ 
+      action: 'START_MANGA_BATCH_PC_MODE', 
+      payload: { 
+        images: selected,
+        mobile: true // 強制標記為行動端
+      } 
+    });
   };
+
+  // 監聽背景訊息 (支援小說模式)
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === 'translateNovelPage' || request.action === 'AUTO_TRANSLATE_PAGE') {
+        startNovelTranslation();
+        sendResponse({ started: true });
+    }
+  });
+
+  function startNovelTranslation() {
+    const paragraphs = getNovelParagraphs();
+    if (paragraphs.length === 0) return;
+    
+    // 清除舊狀態，準備新翻譯
+    chrome.storage.local.set({ 
+        novelResults: [],
+        novelQueue: [],
+        isProcessingNovel: false 
+    }, () => {
+        insertPlaceholders(paragraphs);
+        const texts = paragraphs.map(p => p.textContent.trim());
+        chrome.runtime.sendMessage({
+            action: 'ADD_TO_QUEUE',
+            payload: {
+                // 不傳 tabId，讓背景腳本自動抓 sender.tab.id
+                startIndex: 0,
+                texts: texts
+            }
+        });
+    });
+  }
 
   log.info('Content-Mobile', 'Mobile Overlay Drawer ready.');
 }

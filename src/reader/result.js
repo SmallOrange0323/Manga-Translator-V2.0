@@ -788,12 +788,17 @@ function initMobileReader() {
             if (idx >= 0) {
                 updateActiveDot(idx);
                 currentVisibleCard = entry.target;
-                // 切換頁面時，關閉已開啟的面板並還原 FAB
+                
+                // 【新增】預設開啟翻譯面板
+                const textWrapper = entry.target.querySelector('.card-text-wrapper');
+                if (textWrapper && !textWrapper.classList.contains('is-open')) {
+                    openPanel(textWrapper);
+                }
+
+                // 確保其他非當前卡片的面板收起
                 cards.forEach((c, i) => {
                     if (i !== idx) c.querySelector('.card-text-wrapper')?.classList.remove('is-open');
                 });
-                // 確保 FAB 可見（換頁後面板收起）
-                if (fab) fab.classList.remove('hidden');
             }
         });
     }, { root: resultsContainer, threshold: 0.5 });

@@ -25,101 +25,181 @@ state.init().then(async () => {
     }
 });
 
+// 同步本地鎖，解決 chrome.storage 非同步造成的 race condition
+let _localNovelProcessingLock = false;
+
 // 真正的翻譯處理循環
 async function processNovelQueue() {
-    const isProcessing = await state.get('isProcessingNovel', false);
-    if (isProcessing) return;
+    if (_localNovelProcessingLock) return;
+    _localNovelProcessingLock = true;
 
+    // 仍需更新 storage 以便讓 UI 知道狀態
     await state.set('isProcessingNovel', true);
     
-    while (true) {
-        const queue = await state.get('novelQueue', []);
-        if (queue.length === 0) break;
+    try {
+        while (true) {
+            const rawQueue = await state.get('novelQueue', []);
+            const queue = Array.isArray(rawQueue) ? rawQueue : Object.values(rawQueue || {});
+            
+            if (queue.length === 0) break;
 
-        const task = queue.shift();
-        await state.set('novelQueue', queue);
+            const task = queue.shift();
+            await state.set('novelQueue', queue);
 
-        // 詞庫整合：獲取當前作品 Key 並載入術語
-        // 自癒邏輯：若 SW 重啟導致 navigationContext 遺失，從 Tab 標題重新解析
-        let mangaKey = navigationContext[task.tabId];
-        if (!mangaKey && task.tabId) {
-            try {
-                const tabInfo = await chrome.tabs.get(task.tabId);
-                const titleResult = extractMangaTitle(tabInfo.title || '');
-                if (titleResult) {
-                    mangaKey = titleResult.romanKey;
-                    navigationContext[task.tabId] = mangaKey;
-                    log.info('Background', `小說模式自癒：從標題重新辨識作品 "${titleResult.displayName}"`);
-                }
-            } catch (e) {
-                log.warn('Background', `小說模式自癒失敗，無法取得 Tab 資訊: ${e.message}`);
-            }
-        }
-
-        let glossarySnippet = '';
-        let currentGlossary = null;
-
-        if (mangaKey) {
-            currentGlossary = await loadGlossary(mangaKey);
-            if (currentGlossary && currentGlossary.terms && currentGlossary.terms.length > 0) {
-                glossarySnippet = buildGlossaryPromptSnippet(currentGlossary.terms);
-                log.info('Background', `注入詞庫至 ${mangaKey}（${currentGlossary.terms.length} 筆術語）`);
-            }
-        }
-
-        const allResults = [];
-        try {
-            // 每段翻譯完就立即更新 Storage (串流)
-            for (let i = 0; i < task.texts.length; i++) {
-                const text = task.texts[i];
-                const result = await translateTexts([text], { glossarySnippet }); 
-                
-                // translateTexts 無 schema 時回傳裸 JSON：可能是字串、字串陣列、或物件
-                const translatedText =
-                    (typeof result === 'string' ? result : null) ||
-                    (Array.isArray(result) ? result[0] : null) ||
-                    result?.translation ||
-                    result?.text ||
-                    '（翻譯失敗）';
-                const resultItem = { 
-                    tabId: task.tabId, 
-                    idx: task.startIndex + i,
-                    original: text,
-                    translation: translatedText 
-                };
-                allResults.push(resultItem);
-
-                await state.update('novelResults', (current = []) => [...current, resultItem]);
-
-                await state.setThrottled('novelProgress', {
-                    status: `正在翻譯第 ${i + 1} / ${task.texts.length} 段...`
-                });
-            }
-
-            // 非同步發起術語萃取 (不阻塞翻譯流程)
-            if (mangaKey && allResults.length > 0) {
-                (async () => {
-                    log.info('Background', `開始非同步術語萃取：${mangaKey}...`);
-                    const newTerms = await extractTermsFromTranslation(allResults);
-                    if (newTerms.length > 0) {
-                        const existingTerms = currentGlossary ? currentGlossary.terms : [];
-                        const { terms: mergedTerms, addedCount } = mergeGlossaryTerms(existingTerms, newTerms);
-                        if (addedCount > 0) {
-                            await saveGlossary(mangaKey, {
-                                displayName: currentGlossary?.displayName || mangaKey,
-                                terms: mergedTerms
-                            });
-                        }
+            // 標題與作品 Key 識別
+            let mangaKey = navigationContext[task.tabId];
+            if (!mangaKey && task.tabId) {
+                try {
+                    const tabInfo = await chrome.tabs.get(task.tabId);
+                    const titleResult = extractMangaTitle(tabInfo.title || '');
+                    if (titleResult) {
+                        mangaKey = titleResult.romanKey;
+                        navigationContext[task.tabId] = mangaKey;
                     }
-                })();
+                } catch (e) {}
             }
-        } catch (err) {
-            log.error('Background', '翻譯迴圈發生錯誤:', err);
-        }
-    }
 
-    await state.set('isProcessingNovel', false);
-    await state.set('novelProgress', null);
+            let glossarySnippet = '';
+            let currentDisplayName = mangaKey;
+            if (mangaKey) {
+                const entry = await loadGlossary(mangaKey);
+                if (!entry) {
+                    // 比照漫畫模式：建立初始存檔
+                    await saveGlossary(mangaKey, { displayName: mangaKey, terms: [] });
+                    log.info('Glossary', `為新小說作品 "${mangaKey}" 建立初始詞庫`);
+                } else {
+                    currentDisplayName = entry.displayName || mangaKey;
+                    if (entry.terms && entry.terms.length > 0) {
+                        glossarySnippet = buildGlossaryPromptSnippet(entry.terms);
+                        log.info('Glossary', `套用小說詞庫 "${currentDisplayName}"，共 ${entry.terms.length} 筆術語`);
+                    }
+                }
+            }
+
+            // 讀取小說專用設定
+            const modelName = await state.get('novelModelName', 'gemini-1.5-flash');
+            const fallbackModelName = await state.get('fallbackModelName', 'gemini-1.5-flash');
+            const novelPrompt = await state.get('novelPrompt', '');
+            const batchSize = parseInt(await state.get('novelBatchSize', 50)) || 50;
+            const requestDelay = await state.get('requestDelay', 3000);
+
+            const allTranslatedResults = []; // 用於結尾萃取
+
+            // 批次翻譯模式
+            for (let i = 0; i < task.texts.length; i += batchSize) {
+                const batch = task.texts.slice(i, i + batchSize).filter(t => t && t.trim());
+                if (batch.length === 0) continue;
+
+                try {
+                    log.info('Background', `[小說批次] 翻譯第 ${i + 1}~${Math.min(i + batchSize, task.texts.length)} 段（共 ${task.texts.length} 段）`);
+
+                    // 【修正 1】提早更新進度
+                    await state.setThrottled('novelProgress', {
+                        status: `[批次處理] 正在翻譯第 ${i + 1} ~ ${Math.min(i + batchSize, task.texts.length)} 段，請稍候...`
+                    }, 0); 
+
+                    // 【V1.8.6 移植】為傳送文本加上索引前綴 [N]，強化模型對位
+                    const indexedTexts = batch.map((t, idx) => `[${idx}] ${t}`);
+
+                    // 強制要求 JSON 結構化輸出 (Response Schema)
+                    const schema = {
+                        type: 'OBJECT',
+                        properties: {
+                            translations: { 
+                                type: 'ARRAY', 
+                                items: { 
+                                    type: 'OBJECT',
+                                    properties: {
+                                        index: { type: 'INTEGER' },
+                                        text: { type: 'STRING' }
+                                    },
+                                    required: ['index', 'text']
+                                }
+                            }
+                        },
+                        required: ['translations']
+                    };
+
+                    const finalPrompt = (novelPrompt || '你是一位專業的翻譯師，將日文翻譯為繁體中文。') + 
+                        '\n請嚴格遵守 1:1 對位，輸出 JSON 必須包含 index (0-based) 與 text (譯文)。';
+
+                    const result = await translateTexts(indexedTexts, { 
+                        model: modelName,
+                        fallbackModel: fallbackModelName,
+                        prompt: finalPrompt,
+                        schema: schema, 
+                        glossarySnippet
+                    }); 
+
+                    // 解析結果
+                    let translations = [];
+                    if (result && result.translations) {
+                        const sorted = result.translations.sort((a, b) => a.index - b.index);
+                        translations = sorted.map(item => item.text);
+                    } else if (Array.isArray(result)) {
+                        translations = result;
+                    }
+                    
+                    if (translations.length === 0) throw new Error('翻譯結果為空或格式錯誤'); 
+
+                    // 逐條寫入結果
+                    for (let k = 0; k < batch.length; k++) {
+                        const translation = translations[k] || '（翻譯失敗）';
+                        const resultItem = {
+                            tabId: task.tabId,
+                            idx: task.startIndex + i + k,
+                            original: batch[k],
+                            translation: translation
+                        };
+                        allTranslatedResults.push({ original: batch[k], translation: translation });
+                        await state.update('novelResults', (current = []) => [...current, resultItem]);
+                    }
+
+                    // 批次完成後再次更新進度
+                    await state.setThrottled('novelProgress', {
+                        status: `已完成第 ${Math.min(i + batchSize, task.texts.length)} / ${task.texts.length} 段`
+                    }, 0);
+
+                    if (i + batchSize < task.texts.length) {
+                        await new Promise(r => setTimeout(r, requestDelay));
+                    }
+                } catch (batchErr) {
+                    log.error('Background', `批次翻譯失敗 (第 ${i + 1} 批):`, batchErr);
+                }
+            }
+
+            // ── 異步術語萃取 (與漫畫模式對齊) ──
+            if (mangaKey && allTranslatedResults.length > 0) {
+                log.info('Background', `[小說萃取] 開始分析小說譯文，提取關鍵術語...`);
+                setTimeout(async () => {
+                    try {
+                        const newTerms = await extractTermsFromTranslation(allTranslatedResults, { model: modelName });
+                        if (newTerms && newTerms.length > 0) {
+                            const currentEntry = await loadGlossary(mangaKey) || { terms: [] };
+                            const { terms: mergedTerms, addedCount } = mergeGlossaryTerms(currentEntry.terms || [], newTerms);
+                            if (addedCount > 0) {
+                                await saveGlossary(mangaKey, {
+                                    displayName: currentDisplayName || mangaKey,
+                                    terms: mergedTerms
+                                });
+                                log.info('Background', `[小說萃取] 作品 "${mangaKey}" 自動新增 ${addedCount} 筆術語。`);
+                            }
+                        }
+                    } catch (err) {
+                        log.warn('Background', `[小說萃取] 發生錯誤: ${err.message}`);
+                    }
+                }, 1000);
+            }
+        }
+    } catch (globalErr) {
+        log.error('Background', '小說隊列處理異常:', globalErr);
+        await state.set('novelProgress', { status: `[系統錯誤] ${globalErr.message}` });
+        await new Promise(r => setTimeout(r, 5000));
+    } finally {
+        _localNovelProcessingLock = false;
+        await state.set('isProcessingNovel', false);
+        await state.set('novelProgress', null);
+    }
 }
 
 // 監聽訊息
@@ -235,6 +315,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
   }
 
+  if (message.action === 'getTabMangaKey') {
+      const tabId = message.tabId || sender.tab?.id;
+      const key = navigationContext[tabId] || null;
+      sendResponse({ mangaKey: key });
+      return false;
+  }
+
   if (message.action === 'getGlossaryDetail') {
       const { mangaKey } = message;
       if (!mangaKey) { sendResponse({ entry: null }); return false; }
@@ -285,15 +372,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               }
               if (!base64) throw new Error('無法取得圖片 Base64');
               const modelName = await state.get('modelName', 'gemini-1.5-flash');
+              const fallbackModelName = await state.get('fallbackModelName', 'gemini-1.5-flash');
               let finalPrompt = await state.get('customPrompt', Constants.DEFAULT_PROMPT_ONE_STEP);
-              if (modelName.toLowerCase().includes('gemma')) finalPrompt = Constants.DEFAULT_PROMPT_GEMMA_ONE_STEP;
+              
+              // 救援行動強制使用備援模型
+              const usedModel = fallbackModelName || modelName;
+              if (usedModel.toLowerCase().includes('gemma')) {
+                  finalPrompt = Constants.DEFAULT_PROMPT_GEMMA_ONE_STEP;
+              }
+              
               let glossarySnippet = '';
               if (mangaKey) {
                   const gl = await loadGlossary(mangaKey);
                   if (gl?.terms) glossarySnippet = buildGlossaryPromptSnippet(gl.terms);
               }
               const result = await translateTexts([], {
-                  model: modelName,
+                  model: usedModel,
                   prompt: finalPrompt,
                   glossarySnippet,
                   imageBase64: base64,
@@ -333,8 +427,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       (async () => {
           try {
               const modelName = await state.get('modelName', 'gemini-1.5-flash');
+              const fallbackModelName = await state.get('fallbackModelName', 'gemini-1.5-flash');
               let prompt = await state.get('customPrompt', Constants.DEFAULT_PROMPT_TWO_STEP);
-              if (modelName.toLowerCase().includes('gemma')) prompt = Constants.DEFAULT_PROMPT_GEMMA_ONE_STEP;
+              
+              // 救援行動強制使用備援模型
+              const usedModel = fallbackModelName || modelName;
+              if (usedModel.toLowerCase().includes('gemma')) {
+                  prompt = Constants.DEFAULT_PROMPT_GEMMA_ONE_STEP;
+              }
+              
               let glossarySnippet = '';
               if (mangaKey) {
                   const gl = await loadGlossary(mangaKey);
@@ -342,7 +443,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               }
               const texts = text.split('\n\n').filter(t => t.trim());
               const result = await translateTexts(texts, {
-                  model: modelName,
+                  model: usedModel,
                   prompt,
                   glossarySnippet,
                   schema: {
@@ -690,9 +791,10 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
                 await Promise.all(validItems.map(async (item, k) => {
                     await fallbackSemaphore.acquire();
                     try {
+                        // 【最高指令】救援行動強制僅使用備援模型 (例如 Gemma)
+                        // 不再回傳主要模型，確保在任何失敗後都能獲得最穩定的備援體驗
                         const result = await translateTexts([], {
-                            model: modelName,
-                            fallbackModel: fallbackModelName,
+                            model: fallbackModelName,
                             prompt: finalPrompt,
                             glossarySnippet,
                             imageBase64: item.b64,
@@ -823,8 +925,13 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
 async function handleAddToQueue(task) {
     // 使用原子化更新，確保不會覆蓋並發的任務
-    await state.update('novelQueue', (currentQueue = []) => {
-        return [...currentQueue, task];
+    await state.update('novelQueue', (currentQueue) => {
+        // chrome.storage 有時會把陣列反序列化成 {0: item, 1: item} 的物件
+        // 必須強制轉回陣列才能正確 spread
+        const safeQueue = Array.isArray(currentQueue) 
+            ? currentQueue 
+            : Object.values(currentQueue || {});
+        return [...safeQueue, task];
     });
     log.info('Background', '任務已原子化新增至儲存佇列');
 }

@@ -50,6 +50,86 @@ export function insertPlaceholders(paragraphs) {
     });
 }
 
+// 注入全域樣式（僅注入一次）
+function injectStyles() {
+    if (document.getElementById('mt-novel-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'mt-novel-styles';
+    style.textContent = `
+        .mt-glossary-dialog {
+            position: fixed;
+            top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: white; color: #242424;
+            padding: 20px; border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            z-index: 2147483647; width: 280px;
+            display: flex; flex-direction: column; gap: 12px;
+            font-family: sans-serif;
+        }
+        @media (prefers-color-scheme: dark) {
+            .mt-glossary-dialog { background: #333; color: white; }
+        }
+        .mt-glossary-dialog h3 { margin: 0; font-size: 16px; }
+        .mt-glossary-dialog input {
+            padding: 8px; border-radius: 6px; border: 1px solid #ccc;
+            background: transparent; color: inherit;
+        }
+        .mt-glossary-dialog .btns { display: flex; gap: 8px; justify-content: flex-end; }
+        .mt-glossary-dialog button {
+            padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer;
+        }
+        .mt-glossary-dialog .save { background: #0078d4; color: white; }
+    `;
+    document.head.appendChild(style);
+}
+
+async function handleAddGlossary() {
+    injectStyles();
+    
+    // 1. 獲取當前作品 Key
+    const { mangaKey } = await new Promise(r => chrome.runtime.sendMessage({ action: 'getTabMangaKey' }, r));
+    if (!mangaKey) {
+        alert('無法識別作品標題，請重新整理頁面再試');
+        return;
+    }
+
+    // 2. 建立簡單對話框
+    const dialog = document.createElement('div');
+    dialog.className = 'mt-glossary-dialog';
+    dialog.innerHTML = `
+        <h3>新增語彙</h3>
+        <input type="text" id="mt-ori" placeholder="日文原文 (如: ラインフェルト)">
+        <input type="text" id="mt-trans" placeholder="中文譯名 (如: 萊因哈特)">
+        <div class="btns">
+            <button class="cancel">取消</button>
+            <button class="save">儲存</button>
+        </div>
+    `;
+    document.body.appendChild(dialog);
+
+    const close = () => dialog.remove();
+    dialog.querySelector('.cancel').onclick = close;
+    dialog.querySelector('.save').onclick = async () => {
+        const ori = dialog.querySelector('#mt-ori').value.trim();
+        const trans = dialog.querySelector('#mt-trans').value.trim();
+        if (!ori || !trans) return;
+
+        const resp = await new Promise(r => chrome.runtime.sendMessage({
+            action: 'saveGlossaryTerm',
+            mangaKey,
+            ori,
+            trans
+        }, r));
+
+        if (resp.success) {
+            alert(`已儲存: ${ori} -> ${trans}\n下次翻譯時將會生效。`);
+            close();
+        } else {
+            alert('儲存失敗: ' + resp.error);
+        }
+    };
+}
+
 export function injectTranslation(idx, translation) {
     const placeholder = document.querySelector(`.mt-novel-trans[data-idx="${idx}"]`);
     if (!placeholder) return;
@@ -61,7 +141,8 @@ export function injectTranslation(idx, translation) {
     // 增加功能按鈕 (還原 V1.0 風格)
     const btn = document.createElement('span');
     btn.textContent = ' 📚+';
-    btn.style.cssText = 'cursor: pointer; font-size: 10px; margin-left: 5px; opacity: 0.5;';
-    btn.onclick = () => console.log('Glossary addition not implemented yet');
+    btn.title = '新增至語彙庫';
+    btn.style.cssText = 'cursor: pointer; font-size: 11px; margin-left: 5px; opacity: 0.5; color: #0078d4; font-weight: bold;';
+    btn.onclick = () => handleAddGlossary();
     placeholder.appendChild(btn);
 }

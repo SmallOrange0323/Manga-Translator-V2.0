@@ -28,20 +28,24 @@ export function sanitizeJsonForParsing(rawText) {
     // 注意：這個方式對大多數 LLM 輸出有效，但不處理刻意包含換行的字串值
     cleaned = cleaned.replace(/[\r\n\t]+/g, ' ');
 
-    // 3. 嘗試擷取第一個合法的 JSON 物件或陣列
+    // 3. 嘗試擷取合法的 JSON 物件或陣列區間
     const firstBrace = cleaned.indexOf('{');
     const firstBracket = cleaned.indexOf('[');
+    
     let start = -1;
-    if (firstBrace !== -1 && firstBracket !== -1) {
-        start = Math.min(firstBrace, firstBracket);
-    } else if (firstBrace !== -1) {
+    let end = -1;
+
+    // 決定起點
+    if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
         start = firstBrace;
+        end = cleaned.lastIndexOf('}');
     } else if (firstBracket !== -1) {
         start = firstBracket;
+        end = cleaned.lastIndexOf(']');
     }
 
-    if (start > 0) {
-        cleaned = cleaned.slice(start);
+    if (start !== -1 && end !== -1 && end > start) {
+        cleaned = cleaned.slice(start, end + 1);
     }
 
     return cleaned;
