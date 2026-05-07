@@ -742,7 +742,10 @@ function resetNavButtons() {
 let mobileReaderInitialized = false;
 
 function initMobileReader() {
-    if (window.innerWidth > 768) return;
+    // 優先使用 URL 參數 ?mobile=1 判斷（新分頁不受 DevTools 模擬影響）
+    // 若無參數則 fallback 到螢幕寬度判斷
+    const isMobileMode = new URLSearchParams(location.search).get('mobile') === '1' || window.innerWidth <= 768;
+    if (!isMobileMode) return;
     if (mobileReaderInitialized) return;
     mobileReaderInitialized = true;
 
@@ -784,17 +787,46 @@ function initMobileReader() {
             const idx = cards.indexOf(entry.target);
             if (idx >= 0) {
                 updateActiveDot(idx);
+                currentVisibleCard = entry.target;
+                // 切換頁面時，關閉已開啟的面板並還原 FAB
                 cards.forEach((c, i) => {
-                    if (i !== idx) {
-                        c.querySelector('.card-text-wrapper')?.classList.remove('is-open');
-                        c.querySelector('.mobile-tap-hint')?.classList.remove('hidden');
-                    }
+                    if (i !== idx) c.querySelector('.card-text-wrapper')?.classList.remove('is-open');
                 });
+                // 確保 FAB 可見（換頁後面板收起）
+                if (fab) fab.classList.remove('hidden');
             }
         });
     }, { root: resultsContainer, threshold: 0.5 });
 
-    // ── 3. 綁定單張卡片 ──
+    // ── 3. 建立全域固定 FAB 按鈕（position: fixed，不受卡片/容器影響）──
+    const fab = document.createElement('button');
+    fab.id = 'mt-mobile-fab';
+    fab.textContent = '📖 查看翻譯';
+    document.body.appendChild(fab);
+
+    let currentVisibleCard = null;
+
+    const openPanel = (textWrapper) => {
+        // 關閉所有已開啟的面板
+        document.querySelectorAll('.card-text-wrapper.is-open').forEach(w => w.classList.remove('is-open'));
+        textWrapper.scrollTop = 0;  // 每次打開都從頂部開始
+        textWrapper.classList.add('is-open');
+        fab.classList.add('hidden');
+    };
+
+    const closePanel = () => {
+        document.querySelectorAll('.card-text-wrapper.is-open').forEach(w => w.classList.remove('is-open'));
+        fab.classList.remove('hidden');
+    };
+
+    // FAB 點擊：開啟目前可見卡片的翻譯面板
+    fab.addEventListener('click', () => {
+        if (!currentVisibleCard) return;
+        const textWrapper = currentVisibleCard.querySelector('.card-text-wrapper');
+        if (textWrapper) openPanel(textWrapper);
+    });
+
+    // ── 4. 綁定單張卡片（加入面板 header + 捲動區域）──
     window._bindMobileCard = function(card) {
         if (card.dataset.mobileBound) return;
         card.dataset.mobileBound = '1';
@@ -802,41 +834,36 @@ function initMobileReader() {
         const textWrapper = card.querySelector('.card-text-wrapper');
         if (!textWrapper) return;
 
-        // 加入底部觸發按鈕（永遠可見，不依賴點擊圖片）
-        const triggerBtn = document.createElement('button');
-        triggerBtn.className = 'mobile-translate-btn';
-        triggerBtn.innerHTML = '📖 查看翻譯';
-        card.appendChild(triggerBtn);
+        // 把 textWrapper 原有的所有子元素移到獨立捲動容器
+        const contentArea = document.createElement('div');
+        contentArea.className = 'mobile-panel-content';
+        while (textWrapper.firstChild) {
+            contentArea.appendChild(textWrapper.firstChild);
+        }
 
-        // 加入關閉按鈕到翻譯面板內
-        const closeBtn = document.createElement('button');
-        closeBtn.className = 'mobile-close-btn';
-        closeBtn.innerHTML = '✕ 收起';
-        textWrapper.insertBefore(closeBtn, textWrapper.firstChild);
+        // 建立 panel header（固定在最上方，不用 sticky）
+        const panelHeader = document.createElement('div');
+        panelHeader.className = 'mobile-panel-header';
+        panelHeader.innerHTML = `
+            <div class="mobile-panel-header-row">
+                <span class="mobile-panel-title">📄 翻譯內容</span>
+                <button class="mobile-close-btn">✕ 收起</button>
+            </div>
+        `;
 
-        const openPanel = () => {
-            // 關閉所有其他面板
-            document.querySelectorAll('.card-text-wrapper.is-open').forEach(w => w.classList.remove('is-open'));
-            document.querySelectorAll('.mobile-translate-btn.hidden').forEach(b => b.classList.remove('hidden'));
-            // 開啟本張
-            textWrapper.classList.add('is-open');
-            triggerBtn.classList.add('hidden');
-        };
+        // 重組 textWrapper：header → content（分開捲動）
+        textWrapper.appendChild(panelHeader);
+        textWrapper.appendChild(contentArea);
 
-        const closePanel = () => {
-            textWrapper.classList.remove('is-open');
-            triggerBtn.classList.remove('hidden');
-        };
-
-        // 支援 touch 與 click 兩種事件
-        let touchMoved = false;
-        triggerBtn.addEventListener('touchstart', () => { touchMoved = false; }, { passive: true });
-        triggerBtn.addEventListener('touchmove', () => { touchMoved = true; }, { passive: true });
-        triggerBtn.addEventListener('touchend', (e) => { if (!touchMoved) { e.preventDefault(); openPanel(); } });
-        triggerBtn.addEventListener('click', openPanel);
-
-        closeBtn.addEventListener('touchend', (e) => { e.preventDefault(); closePanel(); });
-        closeBtn.addEventListener('click', closePanel);
+        panelHeader.querySelector('.mobile-close-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            closePanel();
+        });
+        panelHeader.querySelector('.mobile-close-btn').addEventListener('touchend', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closePanel();
+        });
 
         scrollObserver.observe(card);
         rebuildDots();

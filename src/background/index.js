@@ -141,11 +141,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'START_MANGA_BATCH_PC_MODE') {
-      let { tabId, images } = message.payload;
+      let { tabId, images, mobile } = message.payload;
       if (!tabId && sender.tab) tabId = sender.tab.id;
+      // 行動端來源時加上 mobile=1 參數，讓結果頁知道要啟用行動閱讀器模式
+      const mobileParam = mobile ? '&mobile=1' : '';
       // 儲存 payload，等 result.html 的 resultPageReady 訊號再開始翻譯
       chrome.storage.local.set({ mt_batch_payload: { tabId, images } }, () => {
-          chrome.tabs.create({ url: chrome.runtime.getURL('src/reader/result.html') + '?tabId=' + tabId }, (tab) => {
+          chrome.tabs.create({ url: chrome.runtime.getURL('src/reader/result.html') + '?tabId=' + tabId + mobileParam }, (tab) => {
               pendingBatchJobs[tab.id] = { sourceTabId: tabId, images };
               // Bug #6 修復：60 秒內未收到 resultPageReady 訊號則自動清除，
               // 避免結果頁在開啟前被關閉導致記錄永久殘留

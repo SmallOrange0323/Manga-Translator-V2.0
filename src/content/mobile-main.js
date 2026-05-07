@@ -234,8 +234,9 @@ export function initMobileMode() {
     chrome.runtime.sendMessage({
       action: 'START_MANGA_BATCH_PC_MODE',
       payload: {
-          tabId: null, // 背景腳本會補上 sender.tab.id
-          images: selected
+          tabId: null,   // 背景腳本會補上 sender.tab.id
+          images: selected,
+          mobile: true   // 告知背景腳本這是行動端發起，在結果頁 URL 加上 mobile=1
       }
     });
     toggleDrawer(false);
