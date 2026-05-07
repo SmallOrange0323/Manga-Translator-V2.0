@@ -155,6 +155,47 @@ body {
 #mt-start-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
 #mt-selection-btn:hover { background: var(--theme-bg-hover); }
 
+/* --- 停止按鈕 (1.8.6 進化版) --- */
+#mt-stop-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px;
+    border: none;
+    border-radius: var(--radius-md);
+    font-weight: 700;
+    cursor: pointer;
+    background: #fff0f0;
+    color: #ff4d4f;
+    border: 1px solid #ffccc7;
+    transition: all var(--transition);
+    position: relative;
+    overflow: hidden;
+}
+
+#mt-stop-btn:hover {
+    background: #ffccc7;
+    color: #cf1322;
+}
+
+/* 旋轉動畫動畫 */
+.mt-spin {
+    animation: mt-loading-spin 1.5s linear infinite;
+    display: inline-block;
+}
+
+@keyframes mt-loading-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* 脈動文字 */
+.mt-pulse-text {
+    animation: mt-pulse 1.5s ease-in-out infinite;
+}
+
 /* Switch 開關樣式 */
 .mt-switch {
     position: relative;
