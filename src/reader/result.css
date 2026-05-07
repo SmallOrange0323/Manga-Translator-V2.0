@@ -1111,3 +1111,223 @@ body.theme-priconne .skeleton-anim {
     0%, 100% { transform: rotate(0deg); }
     50% { transform: rotate(25deg); }
 }
+
+/* ─── Mobile Manga Reader Mode ─── */
+@media (max-width: 768px) {
+
+    /* ── Header：壓縮為超薄工具列 ── */
+    .result-header {
+        padding: 0 12px;
+        min-height: 52px;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+    .result-header h1 { font-size: 15px; }
+    .header-sub { display: none; }
+    .header-logo { display: none; }
+    .glossary-badge { font-size: 10px; padding: 2px 8px; margin-left: 4px; }
+    .actions { gap: 6px; }
+    .btn-export { padding: 6px 10px; font-size: 11px; border-radius: 8px; gap: 4px; }
+
+    /* ── 結果容器：水平捲動 + Scroll Snap ── */
+    .results-container {
+        display: flex;
+        flex-direction: row;
+        overflow-x: scroll;
+        overflow-y: hidden;
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+        padding: 0;
+        gap: 0;
+        max-width: 100vw;
+        height: calc(100vh - 52px);
+        scrollbar-width: none; /* Firefox */
+    }
+    .results-container::-webkit-scrollbar { display: none; }
+
+    /* ── 每張卡片 = 一個全螢幕頁面 ── */
+    .result-card {
+        flex: 0 0 100vw;
+        width: 100vw;
+        height: 100%;
+        min-height: 0;
+        scroll-snap-align: start;
+        position: relative;
+        overflow: visible; /* 允許 bottom sheet 超出卡片邊界 */
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+        display: block;
+        animation: none;
+        transform: none !important;
+    }
+    .result-card:hover {
+        transform: none !important;
+        box-shadow: none;
+    }
+
+    /* ── 圖片：填滿整個頁面 ── */
+    .card-image-wrapper {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: none;
+        background: #111;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden; /* 圖片本身可以 hidden */
+    }
+    .card-image-wrapper img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        max-height: none;
+    }
+
+    /* ── 翻譯文字：fixed 定位，確保不被任何父層 overflow 裁切 ── */
+    .card-text-wrapper {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        max-height: 70vh;
+        overflow-y: auto;
+        background: rgba(255, 255, 255, 0.97);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-radius: 20px 20px 0 0;
+        padding: 8px 16px 32px;
+        transform: translateY(100%);
+        transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.25);
+        z-index: 99999;
+        visibility: hidden; /* 隱藏時完全不可見 */
+    }
+    .card-text-wrapper.is-open {
+        transform: translateY(0);
+        visibility: visible;
+    }
+
+    /* ── 滑桿把手 (Drag Handle) ── */
+    .card-text-wrapper::before {
+        content: '';
+        display: block;
+        width: 40px;
+        height: 4px;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 2px;
+        margin: 0 auto 12px;
+    }
+
+    /* ── 對話框樣式優化 ── */
+    .dialogue-item {
+        padding: 12px 14px;
+        gap: 8px;
+        border-left-width: 5px;
+        margin-bottom: 8px;
+    }
+    .translated-text { font-size: 16px; }
+    .original-text { font-size: 11px; }
+    .dialogue-btn-group { opacity: 0.7; }
+    .mt-drag-handle { display: none; }
+    .action-btn-group { flex-direction: column; gap: 8px; }
+    .btn-retry, .btn-retranslate-vision, .btn-retranslate-text {
+        padding: 10px 16px;
+        font-size: 13px;
+    }
+
+    /* ── 頁碼徽章 ── */
+    .card-page-badge {
+        top: 12px;
+        left: 12px;
+        background: rgba(0, 0, 0, 0.5);
+        color: #fff;
+        border-color: transparent;
+    }
+    .card-model-badge {
+        top: 44px;
+        left: 12px;
+        background: rgba(0, 0, 0, 0.4);
+        color: #fff;
+        border-color: transparent;
+    }
+
+    /* ── 查看翻譯按鈕（永遠可見，貼底） ── */
+    .mobile-translate-btn {
+        position: absolute;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.65);
+        color: #fff;
+        font-size: 15px;
+        font-weight: 600;
+        padding: 10px 28px;
+        border-radius: 50px;
+        border: none;
+        cursor: pointer;
+        backdrop-filter: blur(8px);
+        z-index: 11;
+        white-space: nowrap;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+        transition: opacity 0.2s;
+    }
+    .mobile-translate-btn.hidden { display: none; }
+    .mobile-translate-btn:active { opacity: 0.7; }
+
+    /* ── 面板內的收起按鈕 ── */
+    .mobile-close-btn {
+        display: block;
+        width: 100%;
+        background: none;
+        border: none;
+        color: #999;
+        font-size: 13px;
+        padding: 4px 0 12px;
+        cursor: pointer;
+        text-align: center;
+    }
+
+    /* ── 進度點 (JS 動態注入) ── */
+    .mobile-progress-bar {
+        position: fixed;
+        top: 52px;
+        left: 0;
+        right: 0;
+        display: flex;
+        justify-content: center;
+        gap: 6px;
+        padding: 6px 0;
+        z-index: 10001;
+        pointer-events: none;
+    }
+    .mobile-progress-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 3px;
+        background: rgba(255, 255, 255, 0.4);
+        transition: all 0.3s ease;
+    }
+    .mobile-progress-dot.active {
+        width: 20px;
+        background: #fff;
+    }
+
+    /* ── Loading Pill ── */
+    .loading-overlay {
+        left: 12px;
+        right: 12px;
+        bottom: 16px;
+        padding: 8px 16px;
+        font-size: 13px;
+    }
+
+    /* ── Nav Footer（隱藏，改由 JS 控制） ── */
+    .nav-footer { display: none; }
+
+    /* ── Skeleton ── */
+    .skeleton-card { display: block; }
+    .skeleton-image { height: 100%; min-height: 0; }
+}

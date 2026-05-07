@@ -354,12 +354,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         translatedData.push(request.data);
         const idx = translatedData.length - 1;
         const placeholder = container.querySelector(`.skeleton-card[data-index="${idx}"]`);
+        let realCard;
         if (placeholder) {
-            const real = buildCard(request.data, idx);
-            placeholder.replaceWith(real);
+            realCard = buildCard(request.data, idx);
+            placeholder.replaceWith(realCard);
         } else {
-            container.appendChild(buildCard(request.data, idx));
+            realCard = buildCard(request.data, idx);
+            container.appendChild(realCard);
         }
+        // 行動端：綁定點擊事件
+        if (window._bindMobileCard) window._bindMobileCard(realCard);
         sendResponse({status: "success"});
     } else if (request.action === "updateProgress") {
         const isNumeric = typeof request.current === 'number';
@@ -733,3 +737,115 @@ function resetNavButtons() {
         nextBtn.innerHTML = `下一話 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>`;
     }
 }
+
+/* ─── 行動端漫畫閱讀器互動邏輯 ─── */
+let mobileReaderInitialized = false;
+
+function initMobileReader() {
+    if (window.innerWidth > 768) return;
+    if (mobileReaderInitialized) return;
+    mobileReaderInitialized = true;
+
+    const resultsContainer = document.getElementById('results-container');
+    if (!resultsContainer) return;
+
+    // ── 1. 建立進度點列 ──
+    const progressBar = document.createElement('div');
+    progressBar.className = 'mobile-progress-bar';
+    document.body.appendChild(progressBar);
+
+    let dots = [];
+    let currentPage = 0;
+
+    function rebuildDots() {
+        const cards = resultsContainer.querySelectorAll('.result-card:not(.skeleton-card)');
+        progressBar.innerHTML = '';
+        dots = [];
+        if (cards.length > 20) { progressBar.style.display = 'none'; return; }
+        progressBar.style.display = 'flex';
+        cards.forEach((_, i) => {
+            const dot = document.createElement('div');
+            dot.className = 'mobile-progress-dot' + (i === currentPage ? ' active' : '');
+            progressBar.appendChild(dot);
+            dots.push(dot);
+        });
+    }
+
+    function updateActiveDot(index) {
+        currentPage = index;
+        dots.forEach((d, i) => d.classList.toggle('active', i === index));
+    }
+
+    // ── 2. Scroll 偵測 ──
+    const scrollObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (!entry.isIntersecting) return;
+            const cards = Array.from(resultsContainer.querySelectorAll('.result-card:not(.skeleton-card)'));
+            const idx = cards.indexOf(entry.target);
+            if (idx >= 0) {
+                updateActiveDot(idx);
+                cards.forEach((c, i) => {
+                    if (i !== idx) {
+                        c.querySelector('.card-text-wrapper')?.classList.remove('is-open');
+                        c.querySelector('.mobile-tap-hint')?.classList.remove('hidden');
+                    }
+                });
+            }
+        });
+    }, { root: resultsContainer, threshold: 0.5 });
+
+    // ── 3. 綁定單張卡片 ──
+    window._bindMobileCard = function(card) {
+        if (card.dataset.mobileBound) return;
+        card.dataset.mobileBound = '1';
+
+        const textWrapper = card.querySelector('.card-text-wrapper');
+        if (!textWrapper) return;
+
+        // 加入底部觸發按鈕（永遠可見，不依賴點擊圖片）
+        const triggerBtn = document.createElement('button');
+        triggerBtn.className = 'mobile-translate-btn';
+        triggerBtn.innerHTML = '📖 查看翻譯';
+        card.appendChild(triggerBtn);
+
+        // 加入關閉按鈕到翻譯面板內
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'mobile-close-btn';
+        closeBtn.innerHTML = '✕ 收起';
+        textWrapper.insertBefore(closeBtn, textWrapper.firstChild);
+
+        const openPanel = () => {
+            // 關閉所有其他面板
+            document.querySelectorAll('.card-text-wrapper.is-open').forEach(w => w.classList.remove('is-open'));
+            document.querySelectorAll('.mobile-translate-btn.hidden').forEach(b => b.classList.remove('hidden'));
+            // 開啟本張
+            textWrapper.classList.add('is-open');
+            triggerBtn.classList.add('hidden');
+        };
+
+        const closePanel = () => {
+            textWrapper.classList.remove('is-open');
+            triggerBtn.classList.remove('hidden');
+        };
+
+        // 支援 touch 與 click 兩種事件
+        let touchMoved = false;
+        triggerBtn.addEventListener('touchstart', () => { touchMoved = false; }, { passive: true });
+        triggerBtn.addEventListener('touchmove', () => { touchMoved = true; }, { passive: true });
+        triggerBtn.addEventListener('touchend', (e) => { if (!touchMoved) { e.preventDefault(); openPanel(); } });
+        triggerBtn.addEventListener('click', openPanel);
+
+        closeBtn.addEventListener('touchend', (e) => { e.preventDefault(); closePanel(); });
+        closeBtn.addEventListener('click', closePanel);
+
+        scrollObserver.observe(card);
+        rebuildDots();
+    };
+
+    // 對目前已存在的卡片初始化
+    resultsContainer.querySelectorAll('.result-card:not(.skeleton-card)').forEach(window._bindMobileCard);
+    rebuildDots();
+}
+
+// ── result.js 是 module，執行時 DOMContentLoaded 已觸發，直接呼叫 ──
+initMobileReader();

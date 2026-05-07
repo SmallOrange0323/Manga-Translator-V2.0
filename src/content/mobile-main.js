@@ -201,7 +201,9 @@ export function initMobileMode() {
     images.forEach((img, i) => {
       const item = document.createElement('div');
       item.className = 'img-item';
-      item.innerHTML = `<img src="${img.url}" loading="lazy">`;
+      // 修正：manga-engine 回傳的是 .src 而非 .url
+      // 加上 referrerpolicy="no-referrer" 繞過 Rawkuma 等網站的防盜連
+      item.innerHTML = `<img src="${img.src}" loading="lazy" referrerpolicy="no-referrer" style="width:100%; height:100%; object-fit:cover;">`;
       item.onclick = () => {
         if (selectedIndices.has(i)) {
           selectedIndices.delete(i);
