@@ -84,45 +84,53 @@ export async function translateTexts(texts, options = {}) {
         try {
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${currentKey}`;
             
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
-            });
+            // 加入 60 秒超時控制
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-            const latencyMs = Math.round(performance.now() - startTime);
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                const apiError = errorData.error?.message || '未知錯誤';
-                const statusCode = response.status;
-                
-                log.api('TranslateAPI', 'API 請求失敗', { 
-                    model: currentModel, 
-                    latencyMs, 
-                    keyAlias, 
-                    status: `HTTP ${statusCode}`,
-                    error: apiError 
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                    signal: controller.signal
                 });
 
-                // 如果是第一次失敗，且設定了備援模型，則立即切換
-                if (attempt === 1 && fallbackModel && currentModel !== fallbackModel) {
-                    log.info('TranslateAPI', `偵測到主要模型異常 (${statusCode})，立即切換至備援模型: ${fallbackModel}`);
-                    currentModel = fallbackModel;
+                const latencyMs = Math.round(performance.now() - startTime);
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    const apiError = errorData.error?.message || '未知錯誤';
+                    const statusCode = response.status;
+                    
+                    log.api('TranslateAPI', 'API 請求失敗', { 
+                        model: currentModel, 
+                        latencyMs, 
+                        keyAlias, 
+                        status: `HTTP ${statusCode}`,
+                        error: apiError 
+                    });
+
+                    // 如果是第一次失敗，且設定了備援模型，則立即切換
+                    if (attempt === 1 && fallbackModel && currentModel !== fallbackModel) {
+                        log.info('TranslateAPI', `偵測到主要模型異常 (${statusCode})，立即切換至備援模型: ${fallbackModel}`);
+                        currentModel = fallbackModel;
+                    }
+
+                    throw new Error(`API 錯誤 ${statusCode}: ${apiError}`);
                 }
 
-                throw new Error(`API 錯誤 ${statusCode}: ${apiError}`);
-            }
+                const json = await response.json();
+                const rawText = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                const cleanJsonStr = sanitizeJsonForParsing(rawText);
+                const parsed = JSON.parse(cleanJsonStr);
+                
+                log.api('TranslateAPI', '翻譯成功', { model: currentModel, latencyMs, keyAlias, status: 'OK' });
+                return parsed;
 
-            const json = await response.json();
-            const rawText = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            // Bug #2 修復：改用 sanitizeJsonForParsing() 取代簡易 regex，
-            // 能正確處理換行符、非 JSON 前綴等 LLM 常見的格式問題
-            const cleanJsonStr = sanitizeJsonForParsing(rawText);
-            const parsed = JSON.parse(cleanJsonStr);
-            
-            log.api('TranslateAPI', '翻譯成功', { model: currentModel, latencyMs, keyAlias, status: 'OK' });
-            return parsed;
+            } finally {
+                clearTimeout(timeoutId);
+            }
 
         } catch (err) {
             const latencyMs = Math.round(performance.now() - startTime);
