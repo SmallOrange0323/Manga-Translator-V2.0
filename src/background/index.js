@@ -215,9 +215,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const payload = message.payload;
     if (!payload.tabId && sender.tab) payload.tabId = sender.tab.id;
     if (payload.navLinks) navLinksStore[payload.tabId] = payload.navLinks;
-    handleAddToQueue(payload).then(() => {
+    
+    // 將任務加入全域佇列
+    state.get('novelQueue', []).then(queue => {
+        const currentQueue = Array.isArray(queue) ? queue : Object.values(queue || {});
+        currentQueue.push(payload);
+        return state.set('novelQueue', currentQueue);
+    }).then(() => {
         processNovelQueue(); // 啟動處理器
     }).catch(err => log.error('Background', 'Queue update failed:', err));
+    
     sendResponse({ status: 'queued' });
     return false; // 同步回應
   }
