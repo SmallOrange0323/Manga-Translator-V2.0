@@ -141,7 +141,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'START_MANGA_BATCH_PC_MODE') {
-      const { tabId, images } = message.payload;
+      let { tabId, images } = message.payload;
+      if (!tabId && sender.tab) tabId = sender.tab.id;
       // 儲存 payload，等 result.html 的 resultPageReady 訊號再開始翻譯
       chrome.storage.local.set({ mt_batch_payload: { tabId, images } }, () => {
           chrome.tabs.create({ url: chrome.runtime.getURL('src/reader/result.html') + '?tabId=' + tabId }, (tab) => {
@@ -151,6 +152,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               setTimeout(() => { delete pendingBatchJobs[tab.id]; }, 60000);
           });
       });
+      sendResponse({ status: 'ok' });
+      return false;
+  }
+
+  // 行動端專用：開啟行動版翻譯分頁
+  if (message.action === 'OPEN_MOBILE_PANEL') {
+      const sourceTabId = sender.tab.id;
+      const mobileUrl = chrome.runtime.getURL('src/mobile/index.html') + '?sourceTabId=' + sourceTabId;
+      chrome.tabs.create({ url: mobileUrl });
       sendResponse({ status: 'ok' });
       return false;
   }
