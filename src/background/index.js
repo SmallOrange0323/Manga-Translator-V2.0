@@ -931,49 +931,6 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
 
     chrome.tabs.sendMessage(resultTabId, { action: 'batchComplete' });
     await state.set('isStopping', true); // 任務結束，隱藏停止按鈕
-
-    // 【排程翻譯】自動跳轉下一話功能
-    const autoNext = await state.get('autoNextEnabled', false);
-    const nav = navLinksStore[sourceTabId];
-    
-    if (autoNext && nav && nav.next && !isStopping) {
-        log.info('Background', `[排程翻譯] 偵測到下一話連結: ${nav.next}，準備跳轉...`);
-        
-        // 讓使用者在結果頁看到進度
-        chrome.tabs.sendMessage(resultTabId, { 
-            action: 'UPDATE_PROGRESS', 
-            payload: { text: '正在跳轉下一話並繼續翻譯...' } 
-        });
-
-        // 跳轉來源分頁
-        chrome.tabs.update(sourceTabId, { url: nav.next, active: false }, (tab) => {
-            // 監聽載入完成事件
-            const onUpdated = (updatedTabId, info) => {
-                if (updatedTabId === sourceTabId && info.status === 'complete') {
-                    chrome.tabs.onUpdated.removeListener(onUpdated);
-                    log.info('Background', '[排程翻譯] 下一話載入完成，等待初始化...');
-                    
-                    // 稍微延遲給網頁腳本初始化時間
-                    setTimeout(() => {
-                        chrome.tabs.sendMessage(sourceTabId, { action: "crawlImages" }, (response) => {
-                            if (response && response.images) {
-                                // 將新抓到的 navLinks 存起來供下一輪使用
-                                if (response.navLinks) navLinksStore[sourceTabId] = response.navLinks;
-                                
-                                // 直接發起新一輪翻譯
-                                handleStartMangaBatchPCMode({
-                                    tabId: sourceTabId,
-                                    images: response.images,
-                                    navLinks: response.navLinks
-                                });
-                            }
-                        });
-                    }, 3000);
-                }
-            };
-            chrome.tabs.onUpdated.addListener(onUpdated);
-        });
-    }
 }
 
 

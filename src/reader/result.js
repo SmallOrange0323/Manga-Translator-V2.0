@@ -275,50 +275,59 @@ function isSafeUrl(url) {
 function updateNavUI(navLinks) {
     const { prev, next } = navLinks;
     const footer = document.getElementById('nav-footer');
-    const prevBtn = document.getElementById('prev-btn');
-    const nextBtn = document.getElementById('next-btn');
+    const header = document.getElementById('nav-header');
+    const prevBtns = [document.getElementById('prev-btn'), document.getElementById('prev-btn-top')];
+    const nextBtns = [document.getElementById('next-btn'), document.getElementById('next-btn-top')];
     const safePrev = isSafeUrl(prev) ? prev : null;
     const safeNext = isSafeUrl(next) ? next : null;
 
     if (safePrev || safeNext) {
-        footer.style.display = 'flex';
-        if (safePrev) {
-            prevBtn.style.display = 'inline-block';
-            prevBtn.onclick = () => {
-                prevBtn.disabled = true;
-                prevBtn.classList.add('is-navigating');
-                prevBtn.innerHTML = `正在跳轉至上一話...`;
-                chrome.runtime.sendMessage({ 
-                    action: "navigateAndTranslate", 
-                    url: safePrev,
-                    tabId: sourceTabId,
-                    mangaKey: activeMangaKey // 傳遞鎖定 Key
-                });
-            };
-            prevBtn.title = safePrev;
-        } else {
-            prevBtn.style.display = 'none';
-        }
-        if (safeNext) {
-            nextBtn.style.display = 'inline-block';
-            nextBtn.onclick = () => {
-                nextBtn.disabled = true;
-                nextBtn.classList.add('is-navigating');
-                nextBtn.innerHTML = `正在跳轉至下一話...`;
-                
-                // 10 秒保險逾時，防止跳轉失敗後永久卡死
-                setTimeout(resetNavButtons, 10000);
+        if (footer) footer.style.display = 'flex';
+        if (header) header.style.display = 'flex';
 
-                chrome.runtime.sendMessage({ 
-                    action: "navigateAndTranslate", 
-                    url: safeNext,
-                    tabId: sourceTabId,
-                    mangaKey: activeMangaKey // 傳遞鎖定 Key
-                });
-            };
-            nextBtn.title = safeNext;
+        if (safePrev) {
+            prevBtns.forEach(btn => {
+                if (!btn) return;
+                btn.style.display = 'inline-flex';
+                btn.onclick = () => {
+                    prevBtns.concat(nextBtns).forEach(b => { if(b) b.disabled = true; });
+                    btn.classList.add('is-navigating');
+                    btn.innerHTML = btn.id.includes('top') ? `跳轉中...` : `正在跳轉至上一話...`;
+                    chrome.runtime.sendMessage({ 
+                        action: "navigateAndTranslate", 
+                        url: safePrev,
+                        tabId: sourceTabId,
+                        mangaKey: activeMangaKey
+                    });
+                };
+                btn.title = safePrev;
+            });
         } else {
-            nextBtn.style.display = 'none';
+            prevBtns.forEach(btn => { if(btn) btn.style.display = 'none'; });
+        }
+
+        if (safeNext) {
+            nextBtns.forEach(btn => {
+                if (!btn) return;
+                btn.style.display = 'inline-flex';
+                btn.onclick = () => {
+                    prevBtns.concat(nextBtns).forEach(b => { if(b) b.disabled = true; });
+                    btn.classList.add('is-navigating');
+                    btn.innerHTML = btn.id.includes('top') ? `跳轉中...` : `正在跳轉至下一話...`;
+                    
+                    setTimeout(resetNavButtons, 10000);
+
+                    chrome.runtime.sendMessage({ 
+                        action: "navigateAndTranslate", 
+                        url: safeNext,
+                        tabId: sourceTabId,
+                        mangaKey: activeMangaKey
+                    });
+                };
+                btn.title = safeNext;
+            });
+        } else {
+            nextBtns.forEach(btn => { if(btn) btn.style.display = 'none'; });
         }
     }
 }
@@ -724,18 +733,26 @@ document.getElementById('export-txt-btn').addEventListener('click', () => {
 
 /** 重置導航按鈕狀態，用於逾時保險或任務完成 */
 function resetNavButtons() {
-    const prevBtn = document.getElementById('prev-btn');
-    const nextBtn = document.getElementById('next-btn');
-    if (prevBtn) {
-        prevBtn.disabled = false;
-        prevBtn.classList.remove('is-navigating');
-        prevBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg> 上一話`;
-    }
-    if (nextBtn) {
-        nextBtn.disabled = false;
-        nextBtn.classList.remove('is-navigating');
-        nextBtn.innerHTML = `下一話 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>`;
-    }
+    const btns = [
+        document.getElementById('prev-btn'),
+        document.getElementById('prev-btn-top'),
+        document.getElementById('next-btn'),
+        document.getElementById('next-btn-top')
+    ];
+    btns.forEach(btn => {
+        if (!btn) return;
+        btn.disabled = false;
+        btn.classList.remove('is-navigating');
+        if (btn.id.includes('prev')) {
+            btn.innerHTML = btn.id.includes('top') 
+                ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg> 上一話`
+                : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg> 上一話`;
+        } else {
+            btn.innerHTML = btn.id.includes('top')
+                ? `下一話 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`
+                : `下一話 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>`;
+        }
+    });
 }
 
 /* ─── 行動端漫畫閱讀器互動邏輯 ─── */
