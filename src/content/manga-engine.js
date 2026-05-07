@@ -1,4 +1,5 @@
 // src/content/manga-engine.js
+import { detectNavigationLinks } from '../utils/nav-detector.js';
 
 let overlay = null;
 let selectionBox = null;
@@ -268,5 +269,10 @@ export function crawlImages() {
 
     // 移除重複 URL 並轉換為側邊欄需要的結構
     const uniqueUrls = [...new Set(mangaImages.map(m => m.url))];
-    return uniqueUrls.map(url => ({ src: url }));
+    const navLinks = detectNavigationLinks();
+    
+    return {
+        images: uniqueUrls.map(url => ({ src: url })),
+        navLinks: navLinks
+    };
 }

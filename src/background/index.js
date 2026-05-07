@@ -10,6 +10,7 @@ let navigationContext = {}; // tabId -> mangaKey
 let lastNovelUrlByTab = {}; // tabId -> url (防止重複觸發)
 let capturedScreenshotForSelection = null;
 let pendingBatchJobs = {}; // resultTabId -> { sourceTabId, images }
+let navLinksStore = {}; // tabId -> { prev, next }
 
 log.info('Background', '漫譯 V2 背景服務程式已啟動');
 
@@ -213,6 +214,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'ADD_TO_QUEUE') {
     const payload = message.payload;
     if (!payload.tabId && sender.tab) payload.tabId = sender.tab.id;
+    if (payload.navLinks) navLinksStore[payload.tabId] = payload.navLinks;
     handleAddToQueue(payload).then(() => {
         processNovelQueue(); // 啟動處理器
     }).catch(err => log.error('Background', 'Queue update failed:', err));
@@ -221,8 +223,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'START_MANGA_BATCH_PC_MODE') {
-      let { tabId, images, mobile } = message.payload;
+      let { tabId, images, mobile, navLinks } = message.payload;
       if (!tabId && sender.tab) tabId = sender.tab.id;
+      
+      // 紀錄導航連結
+      if (navLinks) navLinksStore[tabId] = navLinks;
       // 行動端來源時加上 mobile=1 參數，讓結果頁知道要啟用行動閱讀器模式
       const mobileParam = mobile ? '&mobile=1' : '';
       // 儲存 payload，等 result.html 的 resultPageReady 訊號再開始翻譯
@@ -302,7 +307,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'getResultMetadata') {
       const sourceTabId = parseInt(new URL(sender.tab?.url || 'about:blank').searchParams.get('tabId'));
       const mangaKey = navigationContext[sourceTabId] || null;
-      const navLinks = { prev: null, next: null };
+      const navLinks = navLinksStore[sourceTabId] || { prev: null, next: null };
       let displayName = null;
       if (mangaKey) {
           loadGlossary(mangaKey).then(glossary => {

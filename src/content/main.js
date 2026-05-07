@@ -1,6 +1,7 @@
 import { log } from '../utils/logger.js';
 import { initDesktopMode } from './desktop-main.js';
 import { initMobileMode } from './mobile-main.js';
+import { detectNavigationLinks } from '../utils/nav-detector.js';
 
 /**
  * 偵測是否為行動端環境 (Edge Android / Kiwi / etc.)
