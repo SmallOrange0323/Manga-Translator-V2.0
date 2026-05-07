@@ -6,7 +6,16 @@ import { initMobileMode } from './mobile-main.js';
  * 偵測是否為行動端環境 (Edge Android / Kiwi / etc.)
  */
 function isMobileDevice() {
-    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    // 1. 標準 UA 偵測 (涵蓋 Android, iPhone, 舊版 iPad 等)
+    const uaMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
+    // 2. iPadOS 13+ 偽裝偵測 (桌面模式下會隱藏 iPad 字樣，特徵為 MacIntel 且支援多點觸控)
+    const isIPadOS = (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    
+    // 3. 大型觸控平板偵測 (寬度門檻放寬至 1280px 且具備觸控能力)
+    const isTouchTablet = (window.innerWidth <= 1280 && ('ontouchstart' in window || navigator.maxTouchPoints > 0));
+
+    return uaMobile || isIPadOS || isTouchTablet;
 }
 
 function bootstrap() {
