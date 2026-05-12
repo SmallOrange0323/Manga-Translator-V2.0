@@ -45,18 +45,7 @@ export function extractMangaTitle(titleStr) {
     return { displayName: name, rawJapanese: null, romanKey: name };
   }
 
-  // 模式 4：萬用降級 (Fallback)
-  const fallbackMatch = str.match(/^([^|｜\-–—\n]{3,})/);
-  if (fallbackMatch) {
-    let name = fallbackMatch[1].trim();
-    // 二次清洗：針對純數字結尾或 Chap. 結尾
-    name = name.replace(/\s+(?:Chapter|Chap|Ch|EP|Vol|v\.|ep|episode)[\s.]*\d+.*$/i, '');
-    name = name.replace(/\s+\d+\s*$/g, '');
-    name = name.replace(/\s*\([^)]*$/, '');
-    if (name.length >= 2) {
-      return { displayName: name, rawJapanese: null, romanKey: name };
-    }
-  }
+  // 模式 4：萬用降級 (Fallback) 移除，避免過度激進地匹配非漫畫網頁，洩漏使用者隱私
 
   return null;
 }
