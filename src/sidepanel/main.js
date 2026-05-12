@@ -469,16 +469,7 @@ if (globalGlossaryToggle) {
     });
 }
 
-const autoNextToggle = document.getElementById('mt-auto-next-toggle');
-if (autoNextToggle) {
-    state.get('autoNextEnabled', false).then(val => {
-        autoNextToggle.checked = !!val;
-    });
-    autoNextToggle.addEventListener('change', async () => {
-        await state.set('autoNextEnabled', autoNextToggle.checked);
-        console.log('[Sidepanel] 自動跳轉:', autoNextToggle.checked ? '開啟' : '關閉');
-    });
-}
+
 
 // 初始化載入
 updateQuotaUI();
