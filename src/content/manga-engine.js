@@ -255,17 +255,12 @@ export function crawlImages() {
         // 原本的寬鬆過濾 (給不在 manga container 的圖片)
         const isTooSmall = (width < 300 || height < 300);
         
-        // 避免 'ads' 誤傷 WordPress 常見的 'uploads' 目錄
-        const junkKeywords = ['emoji', 'avatar', 'icon', 'logo', '/ads/', 'button', 'banner', 'reaction'];
-        const isJunk = junkKeywords.some(key => url && url.toLowerCase().includes(key));
-        
         // 判斷是否在漫畫容器內
         const isInMangaContainer = MANGA_CONTAINERS.some(selector => img.closest(selector));
 
-        // 1. 不是極小圖示
+        // 1. 不是極小圖示 (寬高均小於 100)
         // 2. 且 (尺寸夠大 或 在漫畫容器內)
-        // 3. 且 網址不含雜訊關鍵字
-        if (!isExtremelySmall && ((!isTooSmall) || isInMangaContainer) && !isJunk) {
+        if (!isExtremelySmall && ((!isTooSmall) || isInMangaContainer)) {
             // 過濾掉明顯是 Logo 或小 Icon 的 base64 碎圖
             if (url && !url.includes('data:image/svg+xml') && !url.includes('data:image/gif;base64,R0lGOD')) {
                 mangaImages.push({
