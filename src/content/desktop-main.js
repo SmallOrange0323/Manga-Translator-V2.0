@@ -79,7 +79,13 @@ function startNovelTranslation() {
     if (paragraphs.length === 0) return;
     insertPlaceholders(paragraphs);
     chrome.storage.local.remove('novelResults');
-    const texts = paragraphs.map(p => p.textContent.trim());
+    // Bug #2 修復：先 clone 段落並移除 .mt-novel-trans，防止重譯時把中文譯文一起送給 AI
+    const texts = paragraphs.map(p => {
+        const clone = p.cloneNode(true);
+        const trans = clone.querySelector('.mt-novel-trans');
+        if (trans) trans.remove();
+        return clone.textContent.trim();
+    });
     chrome.runtime.sendMessage({
         action: 'ADD_TO_QUEUE',
         payload: {

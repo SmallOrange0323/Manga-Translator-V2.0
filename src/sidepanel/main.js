@@ -176,7 +176,10 @@ function updateNovelStatus(progress) {
         }
     } else {
         statusEl.style.display = 'none';
-        if (progressContainer) progressContainer.style.display = 'none';
+        if (progressContainer) {
+            progressContainer.style.display = 'none';
+            if (progressFill) progressFill.style.width = '0%';
+        }
     }
 }
 

@@ -148,6 +148,8 @@ export function injectTranslation(idx, translation, failed = false) {
         return;
     }
 
+    // Warning #2 修復：用 innerHTML 完整清空，避免重譯後按鈕疊加
+    placeholder.innerHTML = '';
     placeholder.textContent = translation;
     placeholder.classList.remove('mt-novel-placeholder');
     placeholder.style.opacity = '1';

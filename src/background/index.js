@@ -239,6 +239,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
     }
     
+    // Bug #1 修復：重置停止旗標，防止前次按停止後小說無法再次翻譯
+    state.set('isStopping', false);
+    state.set('isBatchPaused', false);
+    
     // 將任務加入全域佇列
     state.get('novelQueue', []).then(queue => {
         const currentQueue = Array.isArray(queue) ? queue : Object.values(queue || {});

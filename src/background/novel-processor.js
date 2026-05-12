@@ -54,6 +54,8 @@ async function processNovelQueue() {
                     await new Promise(r => setTimeout(r, 500));
                     if (await state.get('isStopping')) break;
                 }
+                // Warning #1 修復：從暫停退出後，再次確認是否應停止，防止多呼叫一次 API
+                if (await state.get('isStopping')) break;
 
                 try {
                     const result = await translateTexts([text], { 
