@@ -16,7 +16,7 @@ export function initDesktopMode() {
         if (results && results.length > 0) {
             const lastResult = results[results.length - 1];
             if (!lastResult.isManga) {
-                injectTranslation(lastResult.idx, lastResult.translation);
+                injectTranslation(lastResult.idx, lastResult.translation, lastResult.failed);
             }
         }
     }

@@ -18,7 +18,7 @@ export function initMobileMode() {
             const lastResult = results[results.length - 1];
             log.info('Content-Mobile', `嘗試注入第 ${lastResult.idx} 段翻譯`);
             if (!lastResult.isManga) {
-                injectTranslation(lastResult.idx, lastResult.translation);
+                injectTranslation(lastResult.idx, lastResult.translation, lastResult.failed);
             }
         }
     }

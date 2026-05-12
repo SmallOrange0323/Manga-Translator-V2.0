@@ -43,6 +43,18 @@ async function processNovelQueue() {
                 const text = task.texts[i];
                 if (!text.trim()) continue;
 
+                // 檢查是否停止
+                if (await state.get('isStopping')) {
+                    log.warn('Background', '小說翻譯任務已被強制停止');
+                    break;
+                }
+
+                // 暫停輪詢（對齊 v1.8.7 toggleBatchPause 功能）
+                while (await state.get('isBatchPaused', false)) {
+                    await new Promise(r => setTimeout(r, 500));
+                    if (await state.get('isStopping')) break;
+                }
+
                 try {
                     const result = await translateTexts([text], { 
                         model: modelName,
@@ -64,7 +76,9 @@ async function processNovelQueue() {
 
                     await state.update('novelResults', (current = []) => [...current, resultItem]);
                     await state.setThrottled('novelProgress', {
-                        status: `正在翻譯第 ${i + 1} / ${task.texts.length} 段...`
+                        status: `正在翻譯第 ${i + 1} / ${task.texts.length} 段...`,
+                        current: i + 1,
+                        total: task.texts.length
                     });
                     
                     // 段落間延遲，防止 429 錯誤
@@ -73,6 +87,16 @@ async function processNovelQueue() {
                     }
                 } catch (singleErr) {
                     log.error('Background', `第 ${i} 段翻譯失敗:`, singleErr);
+                    
+                    // 修正：失敗時也推入結果，讓前端顯示重試按鈕
+                    const failedItem = { 
+                        tabId: task.tabId, 
+                        idx: task.startIndex + i,
+                        original: text,
+                        translation: '（翻譯失敗）',
+                        failed: true
+                    };
+                    await state.update('novelResults', (current = []) => [...current, failedItem]);
                 }
             }
         }

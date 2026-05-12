@@ -130,9 +130,23 @@ async function handleAddGlossary() {
     };
 }
 
-export function injectTranslation(idx, translation) {
+export function injectTranslation(idx, translation, failed = false) {
     const placeholder = document.querySelector(`.mt-novel-trans[data-idx="${idx}"]`);
     if (!placeholder) return;
+
+    if (failed || translation === '（翻譯失敗）') {
+        placeholder.textContent = '❌ 翻譯失敗';
+        placeholder.style.opacity = '1';
+        placeholder.classList.remove('mt-novel-placeholder');
+        
+        // 保留重試按鈕
+        const retryBtn = document.createElement('span');
+        retryBtn.textContent = ' 🔄 重試';
+        retryBtn.style.cssText = 'cursor: pointer; font-size: 11px; margin-left: 5px; color: #0078d4; font-weight: bold;';
+        retryBtn.onclick = () => handleRetranslateParagraph(idx, placeholder);
+        placeholder.appendChild(retryBtn);
+        return;
+    }
 
     placeholder.textContent = translation;
     placeholder.classList.remove('mt-novel-placeholder');

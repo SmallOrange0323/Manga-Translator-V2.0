@@ -157,11 +157,26 @@ async function updateQuotaUI() {
 
 function updateNovelStatus(progress) {
     const statusEl = document.getElementById('mt-novel-status');
+    const progressContainer = document.getElementById('mt-novel-progress-container');
+    const progressText = document.getElementById('mt-novel-progress-text');
+    const progressFill = document.getElementById('mt-novel-progress-fill');
+
     if (progress && progress.status) {
         statusEl.style.display = 'inline';
-        statusEl.textContent = `(${progress.status})`;
+        statusEl.textContent = '(小說中)';
+        
+        if (progressContainer && progressText && progressFill) {
+            progressContainer.style.display = 'block';
+            progressText.textContent = progress.status;
+            
+            if (progress.current && progress.total) {
+                const percent = Math.round((progress.current / progress.total) * 100);
+                progressFill.style.width = `${percent}%`;
+            }
+        }
     } else {
         statusEl.style.display = 'none';
+        if (progressContainer) progressContainer.style.display = 'none';
     }
 }
 
