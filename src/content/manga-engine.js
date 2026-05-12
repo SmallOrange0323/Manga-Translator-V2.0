@@ -258,9 +258,14 @@ export function crawlImages() {
         // 判斷是否在漫畫容器內
         const isInMangaContainer = MANGA_CONTAINERS.some(selector => img.closest(selector));
 
+        // 過濾明顯非漫畫的雜訊網址 (完全移除 ads 避免誤判 WordPress)
+        const junkKeywords = ['emoji', 'avatar', 'icon', 'logo', 'button', 'banner', 'reaction'];
+        const isJunk = junkKeywords.some(key => url && url.toLowerCase().includes(key));
+
         // 1. 不是極小圖示 (寬高均小於 100)
         // 2. 且 (尺寸夠大 或 在漫畫容器內)
-        if (!isExtremelySmall && ((!isTooSmall) || isInMangaContainer)) {
+        // 3. 且 網址不包含雜訊關鍵字
+        if (!isExtremelySmall && ((!isTooSmall) || isInMangaContainer) && !isJunk) {
             // 過濾掉明顯是 Logo 或小 Icon 的 base64 碎圖
             if (url && !url.includes('data:image/svg+xml') && !url.includes('data:image/gif;base64,R0lGOD')) {
                 mangaImages.push({
