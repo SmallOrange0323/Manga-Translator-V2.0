@@ -255,7 +255,8 @@ export function crawlImages() {
         // 原本的寬鬆過濾 (給不在 manga container 的圖片)
         const isTooSmall = (width < 300 || height < 300);
         
-        const junkKeywords = ['emoji', 'avatar', 'icon', 'logo', 'ads', 'button', 'banner', 'reaction'];
+        // 避免 'ads' 誤傷 WordPress 常見的 'uploads' 目錄
+        const junkKeywords = ['emoji', 'avatar', 'icon', 'logo', '/ads/', 'button', 'banner', 'reaction'];
         const isJunk = junkKeywords.some(key => url && url.toLowerCase().includes(key));
         
         // 判斷是否在漫畫容器內
