@@ -189,10 +189,30 @@ let candidateNavLinks = { prev: null, next: null }; // 同步儲存導航連結
 
 // 綁定按鈕動作
 document.getElementById('mt-start-btn').onclick = () => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
         if (!tabs[0]) return;
         const tabId = tabs[0].id;
 
+        // ── 小說模式分流 ──
+        const isNovelMode = await state.get('novelModeEnabled', false);
+        if (isNovelMode) {
+            // 確保 Content Script 已注入
+            chrome.runtime.sendMessage({ action: 'prepareTab', tabId }, (prep) => {
+                if (!prep || !prep.ready) {
+                    alert('網頁環境啟動失敗。請確認網頁已載入完成，或嘗試手動重整一次網頁。');
+                    return;
+                }
+                // 送出小說翻譯訊號給 Content Script
+                chrome.tabs.sendMessage(tabId, { action: 'translateNovelPage' }, (res) => {
+                    if (chrome.runtime.lastError) {
+                        alert('小說模式啟動失敗：' + chrome.runtime.lastError.message);
+                    }
+                });
+            });
+            return; // 小說模式不走後面的漫畫流程
+        }
+
+        // ── 漫畫模式（原有邏輯）──
         // 顯示載入動畫
         if (loadingOverlay) loadingOverlay.style.display = 'flex';
 
