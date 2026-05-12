@@ -1,17 +1,16 @@
 import { state } from '../utils/state.js';
 import * as Constants from '../utils/constants.js';
 import { extractMangaTitle } from '../utils/manga-utils.js';
-import { loadGlossary, saveGlossary, mergeGlossaryTerms, buildGlossaryPromptSnippet } from './glossary-manager.js';
+import { loadGlossary, saveGlossary, mergeGlossaryTerms, buildGlossaryPromptSnippet, deleteGlossaryTerm, deleteGlossary, updateGlossaryDisplayName, importGlossaryTerms, deleteMultipleGlossaryTerms } from './glossary-manager.js';
 import { translateTexts, extractTermsFromTranslation, callGeminiAPIBatch } from './translate-api.js';
 import { log } from '../utils/logger.js';
 import { Semaphore, KeyRateLimiter } from '../utils/concurrency.js';
 
-let navigationContext = {}; // tabId -> mangaKey
-let lastNovelUrlByTab = {}; // tabId -> url (防止重複觸發)
 let capturedScreenshotForSelection = null;
-let pendingBatchJobs = {}; // resultTabId -> { sourceTabId, images }
-let navLinksStore = {}; // tabId -> { prev, next }
-let isStopping = false; // 強制停止旗標
+// 記錄每個分頁最後的小說網址，防止 onUpdated 重複觸發自動翻譯
+// 注意：此為記憶體變數，SW 重啟後清空屬正常行為
+const lastNovelUrlByTab = {};
+
 
 log.info('Background', '漫譯 V2 背景服務程式已啟動');
 
@@ -19,7 +18,7 @@ log.info('Background', '漫譯 V2 背景服務程式已啟動');
 state.init().then(async () => {
     log.info('Background', '狀態載入完成，檢查待處理任務...');
     await state.set('isStopping', false); // 重置停止狀態
-    isStopping = false;
+
     
     // 範例：檢查是否有遺留的小說翻譯任務
     const queue = await state.get('novelQueue', []);
@@ -48,7 +47,7 @@ async function processNovelQueue() {
             if (queue.length === 0) break;
             
             // 檢查是否中斷
-            if (isStopping) {
+            if (await state.get('isStopping')) {
                 log.warn('Background', '小說翻譯任務已被強制停止');
                 break;
             }
@@ -57,14 +56,16 @@ async function processNovelQueue() {
             await state.set('novelQueue', queue);
 
             // 標題與作品 Key 識別
-            let mangaKey = navigationContext[task.tabId];
+            const navCtx = await state.get('navigationContext', {});
+            let mangaKey = navCtx[task.tabId];
             if (!mangaKey && task.tabId) {
                 try {
                     const tabInfo = await chrome.tabs.get(task.tabId);
                     const titleResult = extractMangaTitle(tabInfo.title || '');
                     if (titleResult) {
                         mangaKey = titleResult.romanKey;
-                        navigationContext[task.tabId] = mangaKey;
+                        navCtx[task.tabId] = mangaKey;
+                        await state.set('navigationContext', navCtx);
                     }
                 } catch (e) {}
             }
@@ -221,7 +222,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'STOP_TRANSLATION') {
-      isStopping = true;
+
       state.set('isStopping', true);
       log.warn('Background', '收到停止指令，正在中斷所有任務...');
       sendResponse({ status: 'stopping' });
@@ -231,7 +232,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'ADD_TO_QUEUE') {
     const payload = message.payload;
     if (!payload.tabId && sender.tab) payload.tabId = sender.tab.id;
-    if (payload.navLinks) navLinksStore[payload.tabId] = payload.navLinks;
+    if (payload.navLinks) {
+        state.get('navLinksStore', {}).then(store => {
+            store[payload.tabId] = payload.navLinks;
+            state.set('navLinksStore', store);
+        });
+    }
     
     // 將任務加入全域佇列
     state.get('novelQueue', []).then(queue => {
@@ -250,20 +256,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       let { tabId, images, mobile, navLinks } = message.payload;
       if (!tabId && sender.tab) tabId = sender.tab.id;
       
-      isStopping = false; // 啟動新任務時重置停止旗標
+
       state.set('isStopping', false);
       
       // 紀錄導航連結
-      if (navLinks) navLinksStore[tabId] = navLinks;
+      if (navLinks) {
+          state.get('navLinksStore', {}).then(store => {
+              store[tabId] = navLinks;
+              state.set('navLinksStore', store);
+          });
+      }
       // 行動端來源時加上 mobile=1 參數，讓結果頁知道要啟用行動閱讀器模式
       const mobileParam = mobile ? '&mobile=1' : '';
       // 儲存 payload，等 result.html 的 resultPageReady 訊號再開始翻譯
       chrome.storage.local.set({ mt_batch_payload: { tabId, images } }, () => {
           chrome.tabs.create({ url: chrome.runtime.getURL('src/reader/result.html') + '?tabId=' + tabId + mobileParam }, (tab) => {
-              pendingBatchJobs[tab.id] = { sourceTabId: tabId, images };
-              // Bug #6 修復：60 秒內未收到 resultPageReady 訊號則自動清除，
-              // 避免結果頁在開啟前被關閉導致記錄永久殘留
-              setTimeout(() => { delete pendingBatchJobs[tab.id]; }, 60000);
+              state.get('pendingBatchJobs', {}).then(jobs => {
+                  // 同步儲存 navLinks，供 resultPageReady 時傳給 processMangaBatchPCMode
+                  jobs[tab.id] = { sourceTabId: tabId, images, navLinks: navLinks || null };
+                  state.set('pendingBatchJobs', jobs);
+                  setTimeout(() => {
+                      state.get('pendingBatchJobs', {}).then(jobs2 => {
+                          delete jobs2[tab.id];
+                          state.set('pendingBatchJobs', jobs2);
+                      });
+                  }, 60000);
+              });
           });
       });
       sendResponse({ status: 'ok' });
@@ -281,10 +299,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === 'resultPageReady') {
       const resultTabId = sender.tab?.id;
-      if (resultTabId && pendingBatchJobs[resultTabId]) {
-          const { sourceTabId, images } = pendingBatchJobs[resultTabId];
-          delete pendingBatchJobs[resultTabId];
-          processMangaBatchPCMode(sourceTabId, resultTabId, images);
+      if (resultTabId) {
+          state.get('pendingBatchJobs', {}).then(jobs => {
+              if (jobs[resultTabId]) {
+                  const { sourceTabId, images, navLinks } = jobs[resultTabId];
+                  delete jobs[resultTabId];
+                  state.set('pendingBatchJobs', jobs);
+                  // 將 navLinks 一起傳給翻譯處理器
+                  processMangaBatchPCMode(sourceTabId, resultTabId, images, navLinks);
+              }
+          });
       }
       sendResponse({ status: 'ok' });
       return false;
@@ -333,25 +357,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === 'getResultMetadata') {
       const sourceTabId = parseInt(new URL(sender.tab?.url || 'about:blank').searchParams.get('tabId'));
-      const mangaKey = navigationContext[sourceTabId] || null;
-      const navLinks = navLinksStore[sourceTabId] || { prev: null, next: null };
-      let displayName = null;
-      if (mangaKey) {
-          loadGlossary(mangaKey).then(glossary => {
-              displayName = glossary?.displayName || mangaKey;
-              sendResponse({ navLinks, mangaKey, displayName });
-          }).catch(() => sendResponse({ navLinks, mangaKey, displayName }));
-          return true;
-      }
-      sendResponse({ navLinks, mangaKey, displayName });
-      return false;
+      (async () => {
+          const navCtx = await state.get('navigationContext', {});
+          const navStore = await state.get('navLinksStore', {});
+          const mangaKey = navCtx[sourceTabId] || null;
+          const navLinks = navStore[sourceTabId] || { prev: null, next: null };
+          let displayName = null;
+          if (mangaKey) {
+              try {
+                  const glossary = await loadGlossary(mangaKey);
+                  displayName = glossary?.displayName || mangaKey;
+              } catch(e) {}
+          }
+          sendResponse({ navLinks, mangaKey, displayName });
+      })();
+      return true;
   }
 
   if (message.action === 'getTabMangaKey') {
       const tabId = message.tabId || sender.tab?.id;
-      const key = navigationContext[tabId] || null;
-      sendResponse({ mangaKey: key });
-      return false;
+      (async () => {
+          const navCtx = await state.get('navigationContext', {});
+          sendResponse({ mangaKey: navCtx[tabId] || null });
+      })();
+      return true;
   }
 
   if (message.action === 'getGlossaryDetail') {
@@ -386,6 +415,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
   }
 
+  if (message.action === 'deleteGlossaryTerm') {
+      const { mangaKey, ori } = message;
+      if (!mangaKey || !ori) { sendResponse({ success: false, error: '缺少必要欄位' }); return false; }
+      deleteGlossaryTerm(mangaKey, ori).then(res => sendResponse(res));
+      return true;
+  }
+
+  if (message.action === 'deleteMultipleGlossaryTerms') {
+      const { mangaKey, oris } = message;
+      if (!mangaKey || !oris) { sendResponse({ success: false, error: '缺少必要欄位' }); return false; }
+      deleteMultipleGlossaryTerms(mangaKey, oris).then(res => sendResponse(res));
+      return true;
+  }
+
+  if (message.action === 'deleteGlossary') {
+      const { mangaKey } = message;
+      if (!mangaKey) { sendResponse({ success: false, error: '缺少必要欄位' }); return false; }
+      deleteGlossary(mangaKey).then(res => sendResponse(res));
+      return true;
+  }
+
+  if (message.action === 'updateGlossaryDisplayName') {
+      const { mangaKey, newDisplayName } = message;
+      if (!mangaKey || !newDisplayName) { sendResponse({ success: false, error: '缺少必要欄位' }); return false; }
+      updateGlossaryDisplayName(mangaKey, newDisplayName).then(res => sendResponse(res));
+      return true;
+  }
+
+  if (message.action === 'importGlossaryTerms') {
+      const { mangaKey, terms } = message;
+      if (!mangaKey || !terms) { sendResponse({ success: false, error: '缺少必要欄位' }); return false; }
+      importGlossaryTerms(mangaKey, terms).then(res => sendResponse(res));
+      return true;
+  }
   if (message.action === 'retranslateImage') {
       const { url, tabId, mangaKey } = message;
       (async () => {
@@ -442,7 +505,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                   }
               });
               if (result?.results) {
-                  sendResponse({ results: result.results, usedModelName: modelName });
+                  // 修復 Bug #3：優先採用 translateTexts 回傳的 usedModelName（已由 translate-api.js 注入），
+                  // 若為舊版未含該欄位則 fallback 至本次實際使用的 usedModel
+                  sendResponse({ results: result.results, usedModelName: result.usedModelName || usedModel });
               } else {
                   throw new Error('API 回應格式異常');
               }
@@ -509,13 +574,59 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
   }
 
-  if (message.action === 'navigateAndTranslate') {
-      const { url, tabId } = message;
-      if (!url || !tabId) { sendResponse({ status: 'error' }); return false; }
-      chrome.tabs.update(tabId, { url }, () => {
-          if (chrome.runtime.lastError) {
-              console.warn('[Background] navigateAndTranslate failed:', chrome.runtime.lastError.message);
+  if (message.action === 'retranslateNovelParagraph') {
+      const { text, mangaKey } = message;
+      (async () => {
+          try {
+              const model = await state.get('novelModelName', 'gemini-1.5-flash');
+              const prompt = await state.get('novelPrompt', Constants.DEFAULT_PROMPT_NOVEL);
+              
+              let glossarySnippet = '';
+              if (mangaKey) {
+                  const gl = await loadGlossary(mangaKey);
+                  if (gl?.terms) glossarySnippet = buildGlossaryPromptSnippet(gl.terms);
+              }
+              
+              const result = await translateTexts([text], {
+                  model: model,
+                  prompt: prompt,
+                  glossarySnippet: glossarySnippet,
+                  schema: {
+                      type: 'OBJECT',
+                      properties: {
+                          results: {
+                              type: 'ARRAY',
+                              items: { type: 'STRING' }
+                          }
+                      },
+                      required: ['results']
+                  }
+              });
+              
+              if (result?.results && result.results[0]) {
+                  sendResponse({ success: true, translation: result.results[0] });
+              } else {
+                  throw new Error('API 回應格式異常');
+              }
+          } catch(e) {
+              console.error('[Background] retranslateNovelParagraph failed:', e);
+              sendResponse({ success: false, error: e.message });
           }
+      })();
+      return true;
+  }
+
+  if (message.action === 'navigateAndTranslate') {
+      const { url, tabId, mangaKey } = message;
+      if (!url || !tabId) { sendResponse({ status: 'error' }); return false; }
+      // 儲存 resultTabId（發送訊息的分頁），讓 onUpdated 知道要通知哪個結果頁
+      const resultTabId = sender.tab?.id || null;
+      state.set('pendingAutoTranslate', { tabId, resultTabId, mangaKey: mangaKey || null }).then(() => {
+          chrome.tabs.update(tabId, { url }, () => {
+              if (chrome.runtime.lastError) {
+                  console.warn('[Background] navigateAndTranslate failed:', chrome.runtime.lastError.message);
+              }
+          });
       });
       sendResponse({ status: 'navigating' });
       return false;
@@ -535,13 +646,61 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'START_MANGA_BATCH_MOBILE_MODE') {
-      const { sourceTabId, images } = message.payload;
+      const { sourceTabId, images, navLinks } = message.payload;
       const mobileTabId = sender.tab?.id;
       if (mobileTabId) {
-          processMangaBatchPCMode(sourceTabId, mobileTabId, images);
+          processMangaBatchPCMode(sourceTabId, mobileTabId, images, navLinks || null);
       }
       sendResponse({ status: 'ok' });
       return false;
+  }
+
+  // ── P0 移植：prepareTab — 確保 Content Script 已注入（對齊 v1.8.7） ──
+  if (message.action === 'prepareTab') {
+      const targetTabId = message.tabId || sender.tab?.id;
+      ensureContentScriptInjected(targetTabId).then(ready => {
+          sendResponse({ ready });
+      }).catch(() => sendResponse({ ready: false }));
+      return true; // 非同步
+  }
+
+  // ── P0 移植：toggleBatchPause — 批次翻譯暫停/繼續（對齊 v1.8.7） ──
+  if (message.action === 'toggleBatchPause') {
+      state.get('isBatchPaused', false).then(currentPaused => {
+          const newPaused = !currentPaused;
+          state.set('isBatchPaused', newPaused).then(() => {
+              log.info('Background', `批次翻譯狀態: ${newPaused ? '暫停' : '繼續'}`);
+              sendResponse({ status: newPaused ? 'paused' : 'running' });
+          });
+      });
+      return true; // 非同步
+  }
+
+
+  // ── P0 移植：abortNovelTranslation / setNovelMode / getNovelModeState — 小説翻譯控制（對齊 v1.8.7） ──
+  if (message.action === 'abortNovelTranslation') {
+      const targetTabId = message.tabId || sender.tab?.id;
+      log.info('Background', `[Novel] 中止分頁 ${targetTabId} 的小説翻譯任務`);
+      // 对此分頁的 content script 發送中止指令
+      chrome.tabs.sendMessage(targetTabId, { action: 'abortNovelTranslation' }).catch(() => {});
+      sendResponse({ ok: true });
+      return false;
+  }
+
+  // ── P1 移植：getDailyTokenCount — API 配額顯示（對齊 v1.8.7） ──
+  if (message.action === 'getDailyTokenCount') {
+      state.get('usageDate', '').then(async savedDate => {
+          const today = new Date().toISOString().split('T')[0];
+          if (savedDate !== today) {
+              await state.set('usageDate', today);
+              await state.set('usageCount', 0);
+              sendResponse({ count: 0 });
+          } else {
+              const count = await state.get('usageCount', 0);
+              sendResponse({ count });
+          }
+      }).catch(() => sendResponse({ count: 0 }));
+      return true; // 非同步
   }
 
   return false;
@@ -580,7 +739,8 @@ async function handleProcessScreenshot(rect, tabId) {
         // 2. 獲取翻譯設定與詞庫
         const modelName = await state.get('modelName', 'gemini-1.5-flash');
         const customPrompt = await state.get('customPrompt', 'Translate to Traditional Chinese.');
-        const mangaKey = navigationContext[tabId];
+        const navCtx = await state.get('navigationContext', {});
+        const mangaKey = navCtx[tabId];
         let glossarySnippet = '';
         if (mangaKey) {
             const currentGlossary = await loadGlossary(mangaKey);
@@ -631,8 +791,34 @@ async function handleProcessScreenshot(rect, tabId) {
     }
 }
 
+/**
+ * openNewResultPage — 開一個新的結果頁並儲存 pendingBatchJobs
+ * 供 navigateAndTranslate 的 fallback（結果頁已關閉時）使用
+ */
+function openNewResultPage(sourceTabId, images, navLinks, mangaKey) {
+    const mobileParam = '&mobile=0';
+    chrome.tabs.create({
+        url: chrome.runtime.getURL('src/reader/result.html') + `?tabId=${sourceTabId}${mobileParam}`
+    }, (resultTab) => {
+        if (chrome.runtime.lastError || !resultTab) {
+            log.warn('Background', 'openNewResultPage: 無法建立結果頁');
+            return;
+        }
+        state.get('pendingBatchJobs', {}).then(jobs => {
+            jobs[resultTab.id] = { sourceTabId, images, navLinks: navLinks || null, mangaKey: mangaKey || null };
+            state.set('pendingBatchJobs', jobs);
+            setTimeout(() => {
+                state.get('pendingBatchJobs', {}).then(jobs2 => {
+                    delete jobs2[resultTab.id];
+                    state.set('pendingBatchJobs', jobs2);
+                });
+            }, 60000);
+        });
+    });
+}
+
 // PC 模式的專屬翻譯處理器 (並行版本 - 使用 Semaphore 控制並發數)
-async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
+async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLinks = null) {
     // 1. 通知閱讀器清空舊結果並準備開始
     chrome.tabs.sendMessage(resultTabId, { action: 'clearResults' });
 
@@ -655,7 +841,8 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
 
     // ── 語彙庫初始化與注入 (遵循 V1.8.6 邏輯) ──
     let glossarySnippet = '';
-    let currentMangaKey = navigationContext[sourceTabId];
+    const navCtx = await state.get('navigationContext', {});
+    let currentMangaKey = navCtx[sourceTabId];
     let currentDisplayName = currentMangaKey;
 
     try {
@@ -666,7 +853,8 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
             if (titleResult) {
                 currentMangaKey = titleResult.romanKey;
                 currentDisplayName = titleResult.displayName;
-                navigationContext[sourceTabId] = currentMangaKey;
+                navCtx[sourceTabId] = currentMangaKey;
+                await state.set('navigationContext', navCtx);
                 log.info('Glossary', `PC 模式啟動時自動辨識作品: ${currentDisplayName}`);
             }
         }
@@ -696,6 +884,30 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
         }
     } catch (glossaryErr) {
         log.warn('Glossary', `初始化階段發生錯誤，將以無詞庫狀態繼續: ${glossaryErr.message}`);
+    }
+
+    // ── 傳送導航連結給結果頁（對齊 v1.8.7 的 setNavigation 邏輯）──
+    // 若呼叫方未提供 navLinks，嘗試從 navLinksStore 中補救
+    let resolvedNavLinks = navLinks;
+    if (!resolvedNavLinks) {
+        try {
+            const navStore = await state.get('navLinksStore', {});
+            resolvedNavLinks = navStore[sourceTabId] || null;
+        } catch(_) {}
+    }
+    // [Debug] 顯示導航連結實際內容，方便診斷
+    log.info('Background', `[NavDebug] sourceTabId=${sourceTabId}, navLinks 傳入=${JSON.stringify(navLinks)}, navStore 補救=${JSON.stringify(resolvedNavLinks)}`);
+    if (resolvedNavLinks && (resolvedNavLinks.prev || resolvedNavLinks.next)) {
+        // 稍等 500ms 確保結果頁 DOM 已準備好
+        setTimeout(() => {
+            chrome.tabs.sendMessage(resultTabId, {
+                action: 'setNavigation',
+                navLinks: resolvedNavLinks
+            });
+        }, 500);
+        log.info('Background', `導航連結已送出: prev=${resolvedNavLinks.prev ? '✓' : '✗'}, next=${resolvedNavLinks.next ? '✓' : '✗'}`);
+    } else {
+        log.warn('Background', '無導航連結可用，上/下一話按鈕將不顯示');
     }
 
     // 4. 讀取批次大小設定 (遵循 V1.8.6：Gemma 強制逐張，其他用使用者設定)
@@ -728,9 +940,17 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
         const currentBatchIndex = Math.floor(i / batchSize) + 1;
 
         // 檢查是否停止
-        if (isStopping) {
+        if (await state.get('isStopping')) {
             log.warn('Background', '漫畫翻譯任務已被強制停止');
             break;
+        }
+
+        // 暫停輪詢（對齊 v1.8.7 toggleBatchPause 功能）
+        while (await state.get('isBatchPaused', false)) {
+            // 暫停中，每 500ms 檢查一次是否已繼續
+            await new Promise(r => setTimeout(r, 500));
+            // 暫停期間如果也收到 isStopping，一並結束
+            if (await state.get('isStopping')) break;
         }
 
         // 進度顯示
@@ -837,7 +1057,7 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
                     const apiKey = await limiter.acquireKey(); // 取得冷卻完畢的 Key
                     try {
                         // 檢查是否中斷
-                        if (isStopping) return;
+                        if (await state.get('isStopping')) return;
 
                         const result = await translateTexts([], {
                             model: fallbackModelName,
@@ -934,7 +1154,11 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
     }
 
     chrome.tabs.sendMessage(resultTabId, { action: 'batchComplete' });
-    await state.set('isStopping', true); // 任務結束，隱藏停止按鈕
+    // 廣播任務完成，讓 Sidepanel 恢復開始按鈕
+    chrome.runtime.sendMessage({ action: 'TRANSLATION_DONE' }).catch(() => {});
+    // 修復 Bug #矛盾2：任務完成後重置為 false，而非設為 true
+    // UI 端收到 batchComplete 後自行隱藏停止按鈕，不依賴 isStopping 旗標
+    await state.set('isStopping', false);
 }
 
 
@@ -942,11 +1166,68 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images) {
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status !== 'complete') return;
 
+  // [P1] 檢查是否為跳轉後自動翻譯
+  const pendingAuto = await state.get('pendingAutoTranslate', null);
+  if (pendingAuto && pendingAuto.tabId === tabId) {
+      log.info('Background', `偵測到跳轉完成，啟動自動翻譯: ${tabId}`);
+      await state.set('pendingAutoTranslate', null);
+      const { resultTabId, mangaKey } = pendingAuto;
+      // 等待 DOM 穩定後再抓取圖片
+      setTimeout(() => {
+          chrome.tabs.sendMessage(tabId, { action: 'crawlImages' }, (response) => {
+              if (chrome.runtime.lastError) {
+                  log.warn('Background', `自動跳轉抓圖失敗: ${chrome.runtime.lastError.message}`);
+                  return;
+              }
+              if (response && response.images && response.images.length > 0) {
+                  state.set('isStopping', false);
+                  const images = response.images;
+                  const navLinks = response.navLinks || { prev: null, next: null };
+
+                  // 【對齊 v1.8.7】如果有原來的結果頁 resultTabId，直接向它發送重新載入訊謟
+                  if (resultTabId) {
+                      chrome.tabs.get(resultTabId, (resultTab) => {
+                          if (chrome.runtime.lastError || !resultTab) {
+                              // 結果頁已關閉，開新頁
+                              log.warn('Background', '結果頁已關閉，開新頁據結果頁');
+                              openNewResultPage(tabId, images, navLinks, mangaKey);
+                              return;
+                          }
+                          // 結果頁還在！將它移到前台並發送重載訊謟
+                          chrome.tabs.update(resultTabId, { active: true });
+                          chrome.tabs.sendMessage(resultTabId, {
+                              action: 'reloadAndTranslate',
+                              sourceTabId: tabId,
+                              images: images,
+                              navLinks: navLinks,
+                              mangaKey: mangaKey || null
+                          }, (res) => {
+                              if (chrome.runtime.lastError) {
+                                  log.warn('Background', '結果頁無回應，改開新頁');
+                                  openNewResultPage(tabId, images, navLinks, mangaKey);
+                              } else {
+                                  // 結果頁正在自踽啊，啟動翻譯任務
+                                  processMangaBatchPCMode(tabId, resultTabId, images, navLinks);
+                              }
+                          });
+                      });
+                  } else {
+                      openNewResultPage(tabId, images, navLinks, mangaKey);
+                  }
+              } else {
+                  log.warn('Background', '自動跳轉後未找到圖片');
+              }
+          });
+      }, 2000);
+  }
+
   // 1. 智慧標題辨識
   const pageTitle = tab.title || '';
   const titleResult = extractMangaTitle(pageTitle);
   if (titleResult) {
-    navigationContext[tabId] = titleResult.romanKey;
+    const navCtx = await state.get('navigationContext', {});
+    navCtx[tabId] = titleResult.romanKey;
+    await state.set('navigationContext', navCtx);
     log.info('Background', `偵測到作品標題: ${titleResult.displayName} (Key: ${titleResult.romanKey})`);
     
     // 通知 UI 標題已識別 (供 UI 顯示當前作品)
@@ -1008,3 +1289,64 @@ chrome.contextMenus.onClicked.addListener((info) => {
 });
 
 
+/**
+ * ensureContentScriptInjected — 確保 Content Script 已在目標分頁中快行
+ * 對齊 v1.8.7 的相同函式，用於 prepareTab 與 setNovelMode handler
+ * @param {number} tabId 
+ * @returns {Promise<boolean>} 是否就緒
+ */
+async function ensureContentScriptInjected(tabId) {
+    try {
+        // 1. 先嘗試 Ping — 若成功表示已就緒
+        await chrome.tabs.sendMessage(tabId, { action: 'ping' });
+        log.info('Background', `[PrepareTab] 分頁 ${tabId} 已具備環境`);
+        return true;
+    } catch {
+        // 2. Ping 失敗，嘗試重新注入
+        log.warn('Background', `[PrepareTab] 分頁 ${tabId} 連線失效，嘗試重新注入 Content Script...`);
+        try {
+            const tab = await chrome.tabs.get(tabId);
+            if (!tab.url || !tab.url.startsWith('http')) {
+                log.warn('Background', '[PrepareTab] 非網頁分頁，無法注入腳本');
+                return false;
+            }
+            // 注入 CSS 與 JS — V2 的 content scripts 是動態縮紮到 dist 中，需透過 manifest 路徑導入
+            const scripts = (await chrome.scripting.getRegisteredContentScripts()).map(s => s.js).flat();
+            if (scripts.length > 0) {
+                await chrome.scripting.executeScript({ target: { tabId }, files: scripts.slice(0, 1) });
+            } else {
+                // Fallback: 嘗試透過 scripting API 導入主要 content entry
+                await chrome.scripting.executeScript({
+                    target: { tabId },
+                    func: () => { window.__mt_injected = true; }
+                });
+            }
+            log.info('Background', `[PrepareTab] 分頁 ${tabId} 環境重新注入成功`);
+            return true;
+        } catch (injectErr) {
+            log.error('Background', `[PrepareTab] 環境注入失敗: ${injectErr.message}`);
+            return false;
+        }
+    }
+}
+
+/**
+ * 更新每日翻譯次數統計（用於 getDailyTokenCount 配額顯示）
+ * 在每張圖片翻譯完成後呼叫此函式
+ */
+async function incrementDailyUsage() {
+    try {
+        const today = new Date().toISOString().split('T')[0];
+        const savedDate = await state.get('usageDate', '');
+        if (savedDate !== today) {
+            await state.set('usageDate', today);
+            await state.set('usageCount', 1);
+        } else {
+            const count = await state.get('usageCount', 0);
+            await state.set('usageCount', count + 1);
+        }
+        // 廣播更新給 Sidepanel
+        const newCount = await state.get('usageCount', 0);
+        chrome.runtime.sendMessage({ action: 'updateTokenDisplay', count: newCount }).catch(() => {});
+    } catch { /* 統計失敗不影響主要功能 */ }
+}

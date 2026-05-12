@@ -483,8 +483,10 @@ body.theme-priconne .skeleton-anim {
     gap: 12px;
     max-width: var(--max-w);
     margin: 0 auto;
-    padding: 24px 32px 48px;
+    padding: 24px 32px 64px; /* 增大底部間距避免被 loading-overlay 蓋住 */
     animation: fadeIn 0.4s ease-out;
+    position: relative;
+    z-index: 100; /* 確保在 loading-overlay 之上 */
 }
 
 .nav-btn {
@@ -1363,7 +1365,11 @@ body.theme-priconne .skeleton-anim {
     }
 
     /* ── Nav Footer ── */
-    .nav-footer { display: flex; padding-bottom: 40px; }
+    .nav-footer { 
+        display: flex; 
+        padding-bottom: 100px; /* 避免被 FAB 按鈕和 loading pill 蓋住 */
+        z-index: 200;
+    }
 
     /* ── Skeleton ── */
     .skeleton-card { display: block; }

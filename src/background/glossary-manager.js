@@ -111,6 +111,180 @@ export function mergeGlossaryTerms(existingTerms, newTerms) {
 }
 
 /**
+ * 刪除指定作品詞庫中的某個詞條
+ * @param {string} mangaKey 
+ * @param {string} oriText 
+ */
+export async function deleteGlossaryTerm(mangaKey, oriText) {
+    if (!mangaKey || !oriText) return { success: false };
+    try {
+        const data = await chrome.storage.local.get([GLOSSARY_STORAGE_KEY]);
+        const all = data[GLOSSARY_STORAGE_KEY] || {};
+        const entry = all[mangaKey];
+        
+        if (!entry || !entry.terms) return { success: false, message: '找不到該作品的詞庫' };
+        
+        const originalLength = entry.terms.length;
+        entry.terms = entry.terms.filter(t => t.ori.toLowerCase().trim() !== oriText.toLowerCase().trim());
+        
+        if (entry.terms.length === originalLength) {
+            return { success: false, message: '未找到該詞條' };
+        }
+        
+        await chrome.storage.local.set({ [GLOSSARY_STORAGE_KEY]: all });
+        log.info('Glossary', `已從 "${mangaKey}" 刪除詞條: ${oriText}`);
+        
+        // 通知 UI 更新
+        chrome.runtime.sendMessage({ 
+            action: 'GLOSSARY_UPDATED', 
+            payload: { mangaKey, termCount: entry.terms.length } 
+        }).catch(() => {});
+        
+        return { success: true, termCount: entry.terms.length };
+    } catch (e) {
+        log.warn('Glossary', `刪除詞條失敗: ${e.message}`);
+        return { success: false, error: e.message };
+    }
+}
+
+/**
+ * 批次刪除指定作品詞庫中的多個詞條
+ * @param {string} mangaKey 
+ * @param {Array} oriTexts 
+ */
+export async function deleteMultipleGlossaryTerms(mangaKey, oriTexts) {
+    if (!mangaKey || !Array.isArray(oriTexts) || oriTexts.length === 0) return { success: false, message: '參數錯誤' };
+    try {
+        const data = await chrome.storage.local.get([GLOSSARY_STORAGE_KEY]);
+        const all = data[GLOSSARY_STORAGE_KEY] || {};
+        const entry = all[mangaKey];
+        
+        if (!entry || !entry.terms) return { success: false, message: '找不到該作品的詞庫' };
+        
+        const originalLength = entry.terms.length;
+        const deleteSet = new Set(oriTexts.map(t => t.toLowerCase().trim()));
+        
+        entry.terms = entry.terms.filter(t => !deleteSet.has(t.ori.toLowerCase().trim()));
+        
+        const deletedCount = originalLength - entry.terms.length;
+        
+        await chrome.storage.local.set({ [GLOSSARY_STORAGE_KEY]: all });
+        log.info('Glossary', `已從 "${mangaKey}" 批次刪除 ${deletedCount} 筆詞條`);
+        
+        // 通知 UI 更新
+        chrome.runtime.sendMessage({ 
+            action: 'GLOSSARY_UPDATED', 
+            payload: { mangaKey, termCount: entry.terms.length } 
+        }).catch(() => {});
+        
+        return { success: true, deletedCount, termCount: entry.terms.length };
+    } catch (e) {
+        log.warn('Glossary', `批次刪除詞條失敗: ${e.message}`);
+        return { success: false, error: e.message };
+    }
+}
+
+/**
+ * 刪除整個作品的詞庫
+ * @param {string} mangaKey 
+ */
+export async function deleteGlossary(mangaKey) {
+    if (!mangaKey) return { success: false };
+    try {
+        const data = await chrome.storage.local.get([GLOSSARY_STORAGE_KEY]);
+        const all = data[GLOSSARY_STORAGE_KEY] || {};
+        
+        if (!all[mangaKey]) return { success: false, message: '找不到該作品的詞庫' };
+        
+        delete all[mangaKey];
+        await chrome.storage.local.set({ [GLOSSARY_STORAGE_KEY]: all });
+        log.info('Glossary', `已刪除作品 "${mangaKey}" 的完整詞庫`);
+        
+        // 通知 UI 更新
+        chrome.runtime.sendMessage({ 
+            action: 'GLOSSARY_UPDATED', 
+            payload: { mangaKey, termCount: 0 } 
+        }).catch(() => {});
+        
+        return { success: true };
+    } catch (e) {
+        log.warn('Glossary', `刪除詞庫失敗: ${e.message}`);
+        return { success: false, error: e.message };
+    }
+}
+
+/**
+ * 更新作品詞庫的顯示名稱
+ * @param {string} mangaKey 
+ * @param {string} newDisplayName 
+ */
+export async function updateGlossaryDisplayName(mangaKey, newDisplayName) {
+    if (!mangaKey || !newDisplayName) return { success: false };
+    try {
+        const data = await chrome.storage.local.get([GLOSSARY_STORAGE_KEY]);
+        const all = data[GLOSSARY_STORAGE_KEY] || {};
+        const entry = all[mangaKey];
+        
+        if (!entry) return { success: false, message: '找不到該作品的詞庫' };
+        
+        entry.displayName = newDisplayName.trim();
+        await chrome.storage.local.set({ [GLOSSARY_STORAGE_KEY]: all });
+        log.info('Glossary', `已更新 "${mangaKey}" 的顯示名稱為: ${newDisplayName}`);
+        
+        return { success: true };
+    } catch (e) {
+        log.warn('Glossary', `更新名稱失敗: ${e.message}`);
+        return { success: false, error: e.message };
+    }
+}
+
+/**
+ * 匯入術語列表
+ * @param {string} mangaKey 
+ * @param {Array} terms 
+ */
+export async function importGlossaryTerms(mangaKey, terms) {
+    if (!mangaKey || !Array.isArray(terms)) return { success: false, message: '參數錯誤' };
+    try {
+        const data = await chrome.storage.local.get([GLOSSARY_STORAGE_KEY]);
+        const all = data[GLOSSARY_STORAGE_KEY] || {};
+        const entry = all[mangaKey] || { terms: [] };
+        
+        const existingOriSet = new Set(entry.terms.map(t => t.ori.toLowerCase().trim()));
+        let addedCount = 0;
+        
+        for (const term of terms) {
+            if (!term.ori || !term.trans) continue;
+            const oriKey = term.ori.toLowerCase().trim();
+            if (existingOriSet.has(oriKey)) continue;
+            
+            entry.terms.push({
+                ori: term.ori.trim(),
+                trans: term.trans.trim(),
+                source: 'user',
+                createdAt: Date.now()
+            });
+            existingOriSet.add(oriKey);
+            addedCount++;
+        }
+        
+        all[mangaKey] = entry;
+        await chrome.storage.local.set({ [GLOSSARY_STORAGE_KEY]: all });
+        
+        // 通知 UI 更新
+        chrome.runtime.sendMessage({ 
+            action: 'GLOSSARY_UPDATED', 
+            payload: { mangaKey, termCount: entry.terms.length } 
+        }).catch(() => {});
+        
+        return { success: true, addedCount, termCount: entry.terms.length };
+    } catch (e) {
+        log.warn('Glossary', `匯入術語失敗: ${e.message}`);
+        return { success: false, error: e.message };
+    }
+}
+
+/**
  * 生成 Prompt 注入片段
  */
 export function buildGlossaryPromptSnippet(terms) {

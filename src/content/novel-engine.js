@@ -145,4 +145,55 @@ export function injectTranslation(idx, translation) {
     btn.style.cssText = 'cursor: pointer; font-size: 11px; margin-left: 5px; opacity: 0.5; color: #0078d4; font-weight: bold;';
     btn.onclick = () => handleAddGlossary();
     placeholder.appendChild(btn);
+
+    // 新增：小說單段重譯按鈕
+    const retransBtn = document.createElement('span');
+    retransBtn.textContent = ' 🔄';
+    retransBtn.title = '單段重譯';
+    retransBtn.style.cssText = 'cursor: pointer; font-size: 11px; margin-left: 5px; opacity: 0.5; color: #0078d4; font-weight: bold;';
+    retransBtn.onclick = () => handleRetranslateParagraph(idx, placeholder);
+    placeholder.appendChild(retransBtn);
+}
+
+/**
+ * 處理單段重譯
+ */
+async function handleRetranslateParagraph(idx, placeholder) {
+    const p = placeholder.parentElement;
+    if (!p) return;
+
+    // 獲取原始文字（過濾掉譯文和按鈕）
+    const clone = p.cloneNode(true);
+    const transDiv = clone.querySelector('.mt-novel-trans');
+    if (transDiv) transDiv.remove();
+    const originalText = clone.textContent.trim();
+
+    if (!originalText) return;
+
+    // 進入 loading 狀態
+    placeholder.textContent = '⏳ 重譯中...';
+    placeholder.style.opacity = '0.6';
+
+    // 獲取當前作品 Key
+    const { mangaKey } = await new Promise(r => chrome.runtime.sendMessage({ action: 'getTabMangaKey' }, r));
+
+    chrome.runtime.sendMessage({
+        action: 'retranslateNovelParagraph',
+        text: originalText,
+        mangaKey: mangaKey
+    }, (response) => {
+        if (response && response.success) {
+            // 重新注入譯文與按鈕
+            injectTranslation(idx, response.translation);
+        } else {
+            placeholder.textContent = '❌ 重譯失敗';
+            placeholder.style.opacity = '1';
+            // 保留重試按鈕
+            const retryBtn = document.createElement('span');
+            retryBtn.textContent = ' 🔄 重試';
+            retryBtn.style.cssText = 'cursor: pointer; font-size: 11px; margin-left: 5px; color: #0078d4;';
+            retryBtn.onclick = () => handleRetranslateParagraph(idx, placeholder);
+            placeholder.appendChild(retryBtn);
+        }
+    });
 }

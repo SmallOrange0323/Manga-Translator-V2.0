@@ -198,6 +198,7 @@ export function initMobileMode() {
 
   // 4. 邏輯控制
   let foundImages = [];
+  let foundNavLinks = { prev: null, next: null };
   const selectedIndices = new Set();
 
   const toggleDrawer = (active) => {
@@ -216,6 +217,7 @@ export function initMobileMode() {
     const images = results.images;
     const navLinks = results.navLinks;
     foundImages = images;
+    foundNavLinks = navLinks;
     
     if (images.length === 0) {
       const paragraphs = getNovelParagraphs();
@@ -296,12 +298,17 @@ export function initMobileMode() {
     if (selected.length === 0) return;
     
     toggleDrawer(false);
+    // 修復 Bug #1：Content Script 本身就跑在來源分頁上，
+    // 透過 chrome.tabs.getCurrent 無法取得分頁 ID（Content Script 不適用）
+    // 改為讓 Background 從 sender.tab.id 自動取得，payload 不傳 tabId
+    // Background 的 handler: if (!tabId && sender.tab) tabId = sender.tab.id;
     chrome.runtime.sendMessage({ 
       action: 'START_MANGA_BATCH_PC_MODE', 
       payload: { 
+        // tabId 省略：Background 會從 sender.tab.id 自動填入（已有此容錯邏輯）
         images: selected,
-        navLinks: results.navLinks, // 從剛才掃描到的結果取用
-        mobile: true // 強制標記為行動端
+        navLinks: foundNavLinks,
+        mobile: true
       } 
     });
   };
@@ -311,6 +318,7 @@ export function initMobileMode() {
     if (request.action === 'translateNovelPage' || request.action === 'AUTO_TRANSLATE_PAGE') {
         startNovelTranslation();
         sendResponse({ started: true });
+        return false;
     }
 
     if (request.action === 'crawlImages') {
@@ -319,7 +327,10 @@ export function initMobileMode() {
             images: results.images, 
             navLinks: results.navLinks 
         });
+        return false;
     }
+
+    return false; // 明確標示同步回應
   });
 
   function startNovelTranslation() {

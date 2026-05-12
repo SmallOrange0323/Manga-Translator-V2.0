@@ -5,7 +5,8 @@
  * 支援 Service Worker 環境偵測與樣式化輸出
  */
 
-const IS_SW = typeof window === 'undefined';
+// 偵測環境：MV3 Service Worker 沒有 window 與 document
+const IS_SW = typeof window === 'undefined' || typeof document === 'undefined';
 
 /**
  * HH:mm:ss.SSS 格式時間戳

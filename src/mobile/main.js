@@ -83,7 +83,7 @@ function renderImageGrid() {
     foundImages.forEach((img, index) => {
         const item = document.createElement('div');
         item.className = 'image-item';
-        item.innerHTML = `<img src="${img.url}" loading="lazy">`;
+        item.innerHTML = `<img src="${img.src}" loading="lazy">`;
         
         item.addEventListener('click', () => toggleImageSelection(index, item));
         imageGrid.appendChild(item);
@@ -147,18 +147,16 @@ async function startTranslation() {
     updateStatus(`正在準備翻譯 ${selectedImages.length} 張圖片...`);
     
     // 將選取的圖片與來源 ID 發送給 Background
-    // 這裡我們暫時重用 PC 版的 BATCH 邏輯，但未來可以為 Mobile 建立專屬邏輯
     chrome.runtime.sendMessage({
-        action: 'START_MANGA_BATCH_PC_MODE',
+        action: 'START_MANGA_BATCH_MOBILE_MODE',
         payload: {
-            tabId: sourceTabId,
+            sourceTabId: sourceTabId, // background 接收的鍵值為 sourceTabId
             images: selectedImages
         }
     });
     
-    // 跳轉到結果頁面 (目前重用 PC 版的 result.html)
-    // 注意：Background 會自動處理跳轉，所以這裡我們只需要等待或顯示進度
-    updateStatus('指令已送出，正在開啟結果頁面...');
+    // 跳轉到結果頁面 (手機版會直接在當前分頁渲染結果)
+    updateStatus('指令已送出，正在準備圖文交錯渲染...');
 }
 
 // 啟動

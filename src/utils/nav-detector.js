@@ -1,46 +1,52 @@
 /**
  * 偵測網頁中的「下一話」與「上一話」導航連結
+ * 對齊 v1.8.7 的完整邏輯：包含 disabled 過濾、URL 標準化、aria-label 支援
  */
 export function detectNavigationLinks() {
-    const links = Array.from(document.querySelectorAll('a[href]'));
-    let navLinks = { prev: null, next: null };
+    const nav = { prev: null, next: null };
+    const links = document.querySelectorAll('a');
 
-    // 關鍵字定義
-    const NEXT_KEYWORDS = ['next', '下一話', '下一章', '下一页', '次へ', '次', '>', '»', 'forward'];
-    const PREV_KEYWORDS = ['prev', 'previous', '上一話', '上一章', '上一页', '前へ', '前', '<', '«', 'back'];
+    // 取得當前頁面 URL 並標準化 (移除 hash 與末端斜線)
+    const currentUrl = window.location.href.split('#')[0].replace(/\/$/, '');
 
-    for (const link of links) {
-        const text = (link.innerText || link.title || '').toLowerCase().trim();
-        const href = link.href;
-        const rel = (link.getAttribute('rel') || '').toLowerCase();
-        const className = (link.className || '');
+    const nextRegex = /(下一|次|next|forward|後|→|≫|»|>)/i;
+    const prevRegex = /(上一|前|prev|back|return|先|←|≪|«|<)/i;
 
-        // 過濾掉明顯不是導航的連結
-        if (!href || href.startsWith('javascript:') || href === window.location.href || href.includes('#')) continue;
+    links.forEach(a => {
+        const href = a.href;
+        // 排除無效連結或 JavaScript 動作
+        if (!href || href.startsWith('javascript:') || href.split('#')[0] === '') return;
 
-        // 偵測下一話 (增加 rel="next" 與常見 class 判斷)
-        if (!navLinks.next) {
-            if (rel === 'next' || NEXT_KEYWORDS.some(k => text.includes(k)) || /next-?chapter|next-?page/i.test(className)) {
-                if (text.length > 0 || link.querySelector('img, svg') || link.closest('.nav, .navigation, .pagination, .chapter-nav')) {
-                    navLinks.next = href;
-                }
-            }
+        // 排除指向當前頁面的連結 (標準化後比對)
+        const targetUrl = href.split('#')[0].replace(/\/$/, '');
+        if (targetUrl === currentUrl) return;
+
+        // 排除被禁用的連結 (常見於漫畫網站的「無下一話」狀態)
+        if (a.hasAttribute('disabled') ||
+            a.getAttribute('aria-disabled') === 'true' ||
+            a.classList.contains('disabled') ||
+            a.classList.contains('is-disabled')) return;
+
+        // 1. 優先檢查 rel 屬性 (HTML 標準)
+        const rel = (a.getAttribute('rel') || '').toLowerCase();
+        if (!nav.next && (rel === 'next' || rel.includes('next'))) {
+            nav.next = href;
+        }
+        if (!nav.prev && (rel === 'prev' || rel.includes('prev') || rel.includes('previous'))) {
+            nav.prev = href;
         }
 
-        // 偵測上一話 (增加 rel="prev" 與常見 class 判斷)
-        if (!navLinks.prev) {
-            if (rel === 'prev' || rel === 'previous' || PREV_KEYWORDS.some(k => text.includes(k)) || /prev-?chapter|prev-?page/i.test(className)) {
-                if (text.length > 0 || link.querySelector('img, svg') || link.closest('.nav, .navigation, .pagination, .chapter-nav')) {
-                    navLinks.prev = href;
-                }
-            }
+        // 2. 關鍵字匹配（text + title + aria-label，長度限制 30 字避免誤抓長文）
+        const text = (a.innerText || a.title || a.getAttribute('aria-label') || '').trim();
+        if (!text || text.length > 30) return;
+
+        if (!nav.next && nextRegex.test(text)) {
+            nav.next = href;
         }
+        if (!nav.prev && prevRegex.test(text)) {
+            nav.prev = href;
+        }
+    });
 
-        // 如果兩邊都找到了，就提前結束
-        if (navLinks.next && navLinks.prev) break;
-    }
-
-    // 嘗試從常見網站的特定結構中精準抓取 (如果有需要的話可以在此擴充)
-    
-    return navLinks;
+    return nav;
 }

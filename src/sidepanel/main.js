@@ -109,11 +109,40 @@ state.onChanged((changes) => {
         updateNovelStatus(changes.novelProgress.newValue);
     }
 
-    if (changes.isStopping) {
-        if (changes.isStopping.newValue) {
-            document.getElementById('mt-stop-btn').style.display = 'none';
-            document.getElementById('mt-start-btn').style.display = 'flex';
+        if (changes.isStopping) {
+            const stopBtn = document.getElementById('mt-stop-btn');
+            const startBtn = document.getElementById('mt-start-btn');
+            const pauseBtn = document.getElementById('mt-pause-btn');
+            if (changes.isStopping.newValue === true) {
+                // isStopping = true 代表使用者主動按了停止
+                if (stopBtn) stopBtn.style.display = 'none';
+                if (startBtn) startBtn.style.display = 'flex';
+                if (pauseBtn) pauseBtn.style.display = 'none';
+            }
+            // isStopping = false 代表任務完成或新任務開始，不在此處理
         }
+});
+
+// 監聽 batchComplete 訊息恢復 UI 狀態
+chrome.runtime.onMessage.addListener((request) => {
+    if (request.action === 'TRANSLATION_DONE') {
+        const stopBtn = document.getElementById('mt-stop-btn');
+        const startBtn = document.getElementById('mt-start-btn');
+        const pauseBtn = document.getElementById('mt-pause-btn');
+        if (stopBtn) stopBtn.style.display = 'none';
+        if (startBtn) startBtn.style.display = 'flex';
+        if (pauseBtn) { pauseBtn.style.display = 'none'; pauseBtn.textContent = '⏸️ 暫停'; pauseBtn.classList.remove('is-paused'); }
+    }
+    // P1 移植：配額即時更新（對齊 v1.8.7 updateTokenDisplay）
+    if (request.action === 'updateTokenDisplay') {
+        state.get('usageTotal', 1000).then(total => {
+            const count = request.count || 0;
+            const percent = Math.min(100, (count / total) * 100);
+            const countEl = document.getElementById('mt-quota-count');
+            const fillEl = document.getElementById('mt-quota-bar-fill');
+            if (countEl) countEl.textContent = `${count} / ${total}`;
+            if (fillEl) fillEl.style.width = `${percent}%`;
+        });
     }
 });
 
@@ -138,47 +167,78 @@ function updateNovelStatus(progress) {
 
 // 選圖階段暫存變數
 let candidateImages = [];
+let candidateNavLinks = { prev: null, next: null }; // 同步儲存導航連結
 
 // 綁定按鈕動作
 document.getElementById('mt-start-btn').onclick = () => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (!tabs[0]) return;
-        
+        const tabId = tabs[0].id;
+
         // 顯示載入動畫
         if (loadingOverlay) loadingOverlay.style.display = 'flex';
 
-        let crawlTimeout = setTimeout(() => {
-            if (loadingOverlay) loadingOverlay.style.display = 'none';
-            alert("掃描請求無回應。請確認網頁沒有變更位址，或嘗試手動重整。");
-        }, 8000);
-
-        chrome.tabs.sendMessage(tabs[0].id, { action: "crawlImages" }, (response) => {
-            clearTimeout(crawlTimeout);
-            // 隱藏載入動畫
-            if (loadingOverlay) loadingOverlay.style.display = 'none';
-
-            if (chrome.runtime.lastError) {
-                console.error('[Manga][SP] crawlImages 失敗:', chrome.runtime.lastError.message);
+        // 「對齊 v1.8.7」先呼叫 prepareTab 確保 Content Script 已注入
+        chrome.runtime.sendMessage({ action: 'prepareTab', tabId }, (prep) => {
+            if (!prep || !prep.ready) {
+                if (loadingOverlay) loadingOverlay.style.display = 'none';
+                alert("網頁環境啟動失敗。請確認網頁已載入完成，或嘗試手動重整一次網頁。");
                 return;
             }
-            if (response && response.images) {
-                candidateImages = response.images;
-                if (candidateImages.length === 0) {
-                    alert("未在此網頁找到候選圖片！\n\n小提醒：部分網站需要往下捲動才會載入圖片，請先捲動網頁後再試一次。");
+
+            let crawlTimeout = setTimeout(() => {
+                if (loadingOverlay) loadingOverlay.style.display = 'none';
+                alert("揃淨請求無回應。請確認網頁沒有變更位址，或嘗試手動重整。");
+            }, 8000);
+
+            chrome.tabs.sendMessage(tabId, { action: "crawlImages" }, (response) => {
+                clearTimeout(crawlTimeout);
+                if (loadingOverlay) loadingOverlay.style.display = 'none';
+
+                if (chrome.runtime.lastError) {
+                    console.error('[Manga][SP] crawlImages 失敗:', chrome.runtime.lastError.message);
                     return;
                 }
-                renderPreviewList();
-            }
+                if (response && Array.isArray(response.images)) {
+                    candidateImages = response.images;
+                    // 同步儲存導航連結，用於後續批次翻譯時帶入
+                    candidateNavLinks = response.navLinks || { prev: null, next: null };
+                    if (candidateImages.length === 0) {
+                        alert("未在此網頁找到候選圖片！\n\n小提醒：部分網站需要往下捲動才會載入圖片，請先捲動網頁後再試一次。");
+                        return;
+                    }
+                    renderPreviewList();
+                }
+            });
         });
     });
 };
 
 document.getElementById('mt-stop-btn').onclick = () => {
     chrome.runtime.sendMessage({ action: 'STOP_TRANSLATION' }, (res) => {
+        // 同時清除暫停狀態，避免下次翻譯發動前還在暫停狀態
+        chrome.runtime.sendMessage({ action: 'toggleBatchPause' }).catch(() => {});
         document.getElementById('mt-stop-btn').style.display = 'none';
+        document.getElementById('mt-pause-btn')?.style.setProperty('display', 'none');
         document.getElementById('mt-start-btn').style.display = 'flex';
     });
 };
+
+// 暫停/繼續按鈕（對齊 v1.8.7 toggleBatchPause）
+const pauseBtn = document.getElementById('mt-pause-btn');
+if (pauseBtn) {
+    pauseBtn.onclick = () => {
+        chrome.runtime.sendMessage({ action: 'toggleBatchPause' }, (res) => {
+            if (res?.status === 'paused') {
+                pauseBtn.textContent = '▶️ 繼續';
+                pauseBtn.classList.add('is-paused');
+            } else {
+                pauseBtn.textContent = '⏸️ 暫停';
+                pauseBtn.classList.remove('is-paused');
+            }
+        });
+    };
+}
 
 document.getElementById('mt-options-btn').onclick = () => {
     chrome.runtime.openOptionsPage();
@@ -191,6 +251,66 @@ document.getElementById('mt-selection-btn').onclick = () => {
 };
 
 const resultsContainer = document.getElementById('mt-results-container');
+
+// ── P0 移植：本地圖片上傳與拖放支援 ──
+const uploadBtn = document.getElementById('mt-upload-btn');
+const fileInput = document.getElementById('mt-file-input');
+
+if (uploadBtn && fileInput) {
+    uploadBtn.onclick = () => fileInput.click();
+    
+    fileInput.onchange = (e) => {
+        handleFiles(e.target.files);
+    };
+}
+
+function handleFiles(files) {
+    if (!files || files.length === 0) return;
+    
+    if (loadingOverlay) loadingOverlay.style.display = 'flex';
+    
+    const fileArray = Array.from(files);
+    const readPromises = fileArray.map(file => {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (ev) => resolve({ src: ev.target.result, name: file.name });
+            reader.readAsDataURL(file);
+        });
+    });
+    
+    Promise.all(readPromises).then(results => {
+        if (loadingOverlay) loadingOverlay.style.display = 'none';
+        
+        // 將讀取的 base64 圖片加入候選清單
+        candidateImages = results.map(r => r.src);
+        candidateNavLinks = { prev: null, next: null }; // 本地上傳無導航
+        
+        renderPreviewList();
+        // 清空 input 讓同一個檔案可以重複選取
+        fileInput.value = '';
+    });
+}
+
+// 拖放支援
+if (resultsContainer) {
+    resultsContainer.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        resultsContainer.style.background = 'rgba(106, 90, 211, 0.05)';
+        resultsContainer.style.border = '2px dashed var(--theme-accent)';
+    });
+
+    resultsContainer.addEventListener('dragleave', () => {
+        resultsContainer.style.background = '';
+        resultsContainer.style.border = '';
+    });
+
+    resultsContainer.addEventListener('drop', (e) => {
+        e.preventDefault();
+        resultsContainer.style.background = '';
+        resultsContainer.style.border = '';
+        handleFiles(e.dataTransfer.files);
+    });
+}
 
 document.getElementById('mt-clear-btn').onclick = () => clearPreviewList();
 document.getElementById('mt-back-btn').onclick = () => clearPreviewList();
@@ -221,7 +341,8 @@ document.getElementById('mt-batch-trans-btn').onclick = () => {
             action: 'START_MANGA_BATCH_PC_MODE',
             payload: {
                 tabId: tabId,
-                images: selectedUrls
+                images: selectedUrls,
+                navLinks: candidateNavLinks  // 傳入導航連結，供結果頁顯示上下一話按鈕
             }
         });
         

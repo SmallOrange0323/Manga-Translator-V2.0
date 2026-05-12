@@ -387,7 +387,8 @@ function renderGlossaryDetail(mangaKey, entry) {
         <table class="term-table">
             <thead>
                 <tr>
-                    <th style="width: 40%">日文原文 (Original)</th>
+                    <th style="width: 5%"><input type="checkbox" id="selectAllTerms"></th>
+                    <th style="width: 35%">日文原文 (Original)</th>
                     <th style="width: 40%">中文譯文 (Translation)</th>
                     <th style="width: 20%">來源與操作</th>
                 </tr>
@@ -396,6 +397,9 @@ function renderGlossaryDetail(mangaKey, entry) {
         </table>
         <div class="glossary-footer" style="display: flex; gap: 10px; margin-top:20px;">
             <button id="addTermBtn" class="btn-small">+ 手動新增術語</button>
+            <button id="importTermBtn" class="btn-small">📥 匯入術語</button>
+            <input type="file" id="glossaryFileInput" accept=".json" style="display: none;">
+            <button id="batchDeleteTermBtn" class="btn-small btn-danger" style="display: none;">🗑️ 批次刪除</button>
             <button id="deleteGlossaryBtn" class="btn-small btn-danger" style="margin-left: auto;">🗑️ 刪除詞庫</button>
         </div>
     `;
@@ -417,12 +421,13 @@ function renderGlossaryDetail(mangaKey, entry) {
 
     const tbody = document.getElementById('termTableBody');
     if (!entry.terms || entry.terms.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="empty-state">此作品尚無術語</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="empty-state">此作品尚無術語</td></tr>';
     } else {
         entry.terms.forEach((term) => {
             const tr = document.createElement('tr');
             const isUser = term.source === 'user';
             tr.innerHTML = `
+                <td><input type="checkbox" class="term-checkbox" data-ori="${term.ori}"></td>
                 <td><input type="text" class="term-input" data-field="ori" value="${term.ori}" data-old-ori="${term.ori}"></td>
                 <td><input type="text" class="term-input" data-field="trans" value="${term.trans}"></td>
                 <td>
@@ -484,6 +489,55 @@ function renderGlossaryDetail(mangaKey, entry) {
         });
     }
 
+    // 全選與批次刪除功能
+    const selectAllCheckbox = document.getElementById('selectAllTerms');
+    const batchDeleteBtn = document.getElementById('batchDeleteTermBtn');
+    
+    const updateBatchBtnVisibility = () => {
+        const checkedCount = tbody.querySelectorAll('.term-checkbox:checked').length;
+        if (batchDeleteBtn) batchDeleteBtn.style.display = checkedCount > 0 ? 'inline-block' : 'none';
+    };
+
+    selectAllCheckbox?.addEventListener('change', (e) => {
+        const checkboxes = tbody.querySelectorAll('.term-checkbox');
+        checkboxes.forEach(cb => cb.checked = e.target.checked);
+        updateBatchBtnVisibility();
+    });
+
+    tbody.addEventListener('change', (e) => {
+        if (e.target.classList.contains('term-checkbox')) {
+            updateBatchBtnVisibility();
+            // 如果有一個沒選，取消全選
+            const allCheckboxes = tbody.querySelectorAll('.term-checkbox');
+            const allChecked = Array.from(allCheckboxes).every(cb => cb.checked);
+            if (selectAllCheckbox) selectAllCheckbox.checked = allChecked;
+        }
+    });
+
+    if (batchDeleteBtn) {
+        batchDeleteBtn.onclick = async () => {
+            const checkedCheckboxes = tbody.querySelectorAll('.term-checkbox:checked');
+            const orisToDelete = Array.from(checkedCheckboxes).map(cb => cb.dataset.ori);
+            
+            if (orisToDelete.length === 0) return;
+            
+            if (!confirm(`確定要刪除選取的 ${orisToDelete.length} 筆術語嗎？`)) return;
+            
+            chrome.runtime.sendMessage({
+                action: 'deleteMultipleGlossaryTerms',
+                mangaKey: mangaKey,
+                oris: orisToDelete
+            }, (response) => {
+                if (response && response.success) {
+                    alert(`成功刪除 ${response.deletedCount} 筆術語！`);
+                    selectManga(mangaKey);
+                } else {
+                    alert('刪除失敗: ' + (response?.error || '未知錯誤'));
+                }
+            });
+        };
+    }
+
     // 搜尋功能
     const searchInput = document.getElementById('termSearchInput');
     searchInput?.addEventListener('input', (e) => {
@@ -511,6 +565,45 @@ function renderGlossaryDetail(mangaKey, entry) {
             await chrome.storage.local.set({ [GLOSSARY_STORAGE_KEY]: all });
             selectManga(mangaKey);
         }
+    };
+
+    // 匯入
+    document.getElementById('importTermBtn').onclick = () => {
+        document.getElementById('glossaryFileInput').click();
+    };
+
+    document.getElementById('glossaryFileInput').onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                const terms = JSON.parse(ev.target.result);
+                if (!Array.isArray(terms)) {
+                    alert('格式錯誤：JSON 必須是陣列格式！\n範例: [{"ori": "日文", "trans": "中文"}]');
+                    return;
+                }
+                
+                chrome.runtime.sendMessage({
+                    action: 'importGlossaryTerms',
+                    mangaKey: mangaKey,
+                    terms: terms
+                }, (response) => {
+                    if (response && response.success) {
+                        alert(`成功匯入 ${response.addedCount} 筆新術語！`);
+                        selectManga(mangaKey);
+                    } else {
+                        alert('匯入失敗: ' + (response?.error || '未知錯誤'));
+                    }
+                });
+            } catch (err) {
+                alert('解析 JSON 失敗: ' + err.message);
+            }
+            // 清空讓同一個檔案可以重複選取
+            e.target.value = '';
+        };
+        reader.readAsText(file);
     };
 
     // 刪除整部

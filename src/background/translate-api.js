@@ -82,6 +82,11 @@ export async function translateTexts(texts, options = {}) {
         const keyAlias = state.getApiKeyAlias(currentKey);
 
         try {
+            // 自動修正模型名稱 (Gemini API 規範)
+            if (currentModel === 'gemini-1.5-pro') {
+                currentModel = 'gemini-1.5-pro-latest';
+            }
+
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${currentKey}`;
             
             // 加入 60 秒超時控制
@@ -124,6 +129,7 @@ export async function translateTexts(texts, options = {}) {
                 const rawText = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
                 const cleanJsonStr = sanitizeJsonForParsing(rawText);
                 const parsed = JSON.parse(cleanJsonStr);
+                parsed.usedModelName = currentModel;
                 
                 log.api('TranslateAPI', '翻譯成功', { model: currentModel, latencyMs, keyAlias, status: 'OK' });
                 return parsed;
@@ -379,7 +385,9 @@ export async function callGeminiAPIBatch(base64Array, customPrompt, glossarySnip
         log.api('TranslateAPI', `批次翻譯成功 (${n} 張)`, { model, latencyMs, keyAlias, status: 'OK' });
 
         // 將 pageIndex 對應結果放回正確位置，長度固定等於 n
-        return parseBatchOutput(data, n);
+        const results = parseBatchOutput(data, n);
+        results.forEach(r => { r.usedModelName = model; });
+        return results;
 
     } catch (e) {
         if (e.name === 'AbortError') throw new Error(`批次翻譯逾時 (${timeoutMs / 1000}s)`);

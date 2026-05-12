@@ -392,6 +392,29 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         document.getElementById('progress-text').innerText = '正在跳轉並準備翻譯...';
         placeholdersCreated = false;
         window.scrollTo(0, 0);
+    } else if (request.action === "reloadAndTranslate") {
+        // 【對齊 v1.8.7】就地清空結果頁，準備接收新章節的翻譯
+        translatedData = [];
+        container.innerHTML = '';
+        placeholdersCreated = false;
+        window.scrollTo(0, 0);
+
+        // 更新 sourceTabId（新章節的 tabId）
+        if (request.sourceTabId) sourceTabId = request.sourceTabId;
+
+        // 隱藏舊導航、清除翻譯完成 overlay
+        const footer = document.getElementById('nav-footer');
+        if (footer) footer.style.display = 'none';
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) overlay.classList.remove('hidden');
+        document.getElementById('progress-text').innerText = '正在跳轉並準備翻譯...';
+
+        // 更新語彙庫 key
+        if (request.mangaKey) activeMangaKey = request.mangaKey;
+
+        // 告訴 Background 確認收到（讓它繼續呼叫 processMangaBatchPCMode）
+        sendResponse({ ready: true });
+        return true; // 非同步
     }
     return false;
 });

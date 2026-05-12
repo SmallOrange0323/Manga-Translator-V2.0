@@ -47,6 +47,7 @@
             display: flex;
             flex-direction: column;
             height: 100vh;
+            height: -webkit-fill-available; /* 修正 iOS 下 100vh 的問題 */
         }
 
         .app-header {

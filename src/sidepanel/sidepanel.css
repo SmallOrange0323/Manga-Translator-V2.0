@@ -126,7 +126,7 @@ body {
     gap: 10px;
 }
 
-#mt-start-btn, #mt-selection-btn {
+#mt-start-btn, #mt-selection-btn, #mt-upload-btn {
     flex: 1;
     display: flex;
     align-items: center;
@@ -146,14 +146,14 @@ body {
     box-shadow: 0 4px 12px var(--theme-accent-soft);
 }
 
-#mt-selection-btn {
+#mt-selection-btn, #mt-upload-btn {
     background: var(--theme-bg-secondary);
     color: var(--theme-text-secondary);
     border: 1px solid var(--theme-border);
 }
 
 #mt-start-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
-#mt-selection-btn:hover { background: var(--theme-bg-hover); }
+#mt-selection-btn:hover, #mt-upload-btn:hover { background: var(--theme-bg-hover); }
 
 /* --- 停止按鈕 (1.8.6 進化版) --- */
 #mt-stop-btn {
