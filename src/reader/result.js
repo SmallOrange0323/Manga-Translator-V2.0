@@ -67,6 +67,21 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('export-html-btn')?.addEventListener('click', saveAsHTML);
     document.getElementById('export-pdf-btn')?.addEventListener('click', () => window.print());
 
+    // [新增] 綁定中止翻譯按鈕
+    const stopBtn = document.getElementById('btn-stop-translation');
+    if (stopBtn) {
+        stopBtn.addEventListener('click', () => {
+            if (confirm("確定要中止目前的批次翻譯嗎？")) {
+                chrome.runtime.sendMessage({ action: 'STOP_TRANSLATION' }, () => {
+                    const overlay = document.getElementById('loading-overlay');
+                    if (overlay) overlay.classList.add('hidden');
+                    // 清除可能殘留的暫停狀態
+                    chrome.runtime.sendMessage({ action: 'toggleBatchPause' }).catch(() => {});
+                });
+            }
+        });
+    }
+
     // 通知背景結果分頁已載入完成
     chrome.runtime.sendMessage({ action: "resultPageReady" }).catch(() => {});
 
