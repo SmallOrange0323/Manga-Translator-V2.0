@@ -193,26 +193,13 @@ document.getElementById('mt-start-btn').onclick = () => {
         if (!tabs[0]) return;
         const tabId = tabs[0].id;
 
-        // ── 小說模式分流 ──
+        // ── 漫畫模式（原有邏輯）──
         const isNovelMode = await state.get('novelModeEnabled', false);
         if (isNovelMode) {
-            // 確保 Content Script 已注入
-            chrome.runtime.sendMessage({ action: 'prepareTab', tabId }, (prep) => {
-                if (!prep || !prep.ready) {
-                    alert('網頁環境啟動失敗。請確認網頁已載入完成，或嘗試手動重整一次網頁。');
-                    return;
-                }
-                // 送出小說翻譯訊號給 Content Script
-                chrome.tabs.sendMessage(tabId, { action: 'translateNovelPage' }, (res) => {
-                    if (chrome.runtime.lastError) {
-                        alert('小說模式啟動失敗：' + chrome.runtime.lastError.message);
-                    }
-                });
-            });
-            return; // 小說模式不走後面的漫畫流程
+            alert('目前為小說模式，此按鈕專供漫畫使用。請關閉小說模式後再試。');
+            return;
         }
 
-        // ── 漫畫模式（原有邏輯）──
         // 顯示載入動畫
         if (loadingOverlay) loadingOverlay.style.display = 'flex';
 
@@ -474,8 +461,30 @@ if (novelModeToggle) {
         novelModeToggle.checked = !!val;
     });
     novelModeToggle.addEventListener('change', async () => {
-        await state.set('novelModeEnabled', novelModeToggle.checked);
-        console.log('[Sidepanel] 小說模式:', novelModeToggle.checked ? '開啟' : '關閉');
+        const isEnabled = novelModeToggle.checked;
+        await state.set('novelModeEnabled', isEnabled);
+        console.log('[Sidepanel] 小說模式:', isEnabled ? '開啟' : '關閉');
+
+        // 對齊 v1.8.7：切換開關即觸發或停止翻譯
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (!tabs[0]) return;
+            const tabId = tabs[0].id;
+            
+            if (isEnabled) {
+                chrome.runtime.sendMessage({ action: 'prepareTab', tabId }, (prep) => {
+                    if (!prep || !prep.ready) {
+                        alert('網頁環境啟動失敗，請重新整理網頁。');
+                        novelModeToggle.checked = false;
+                        state.set('novelModeEnabled', false);
+                        return;
+                    }
+                    chrome.tabs.sendMessage(tabId, { action: 'translateNovelPage' });
+                });
+            } else {
+                chrome.runtime.sendMessage({ action: 'abortNovelTranslation', tabId });
+                state.set('isStopping', true);
+            }
+        });
     });
 }
 

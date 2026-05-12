@@ -25,8 +25,14 @@ export function initDesktopMode() {
   // 監聽背景訊息 (電腦版專屬)
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'translateNovelPage' || request.action === 'AUTO_TRANSLATE_PAGE') {
-        startNovelTranslation();
-        sendResponse({ started: true });
+        log.info('Content-Desktop', `收到 ${request.action} 訊息，準備啟動翻譯`);
+        try {
+            startNovelTranslation();
+            sendResponse({ started: true });
+        } catch (e) {
+            log.error('Content-Desktop', 'startNovelTranslation 發生錯誤:', e);
+            sendResponse({ started: false, error: e.message });
+        }
     }
 
     if (request.action === 'crawlImages') {
@@ -53,6 +59,10 @@ export function initDesktopMode() {
     if (request.action === 'TITLE_DETECTED') {
         log.info('Content-Desktop', `當前作品已識別：${request.payload.displayName}`);
     }
+
+    if (request.action === 'ping') {
+        sendResponse({ pong: true });
+    }
   });
 
   log.info('Content-Desktop', 'Desktop Mode initialized.');
@@ -75,9 +85,14 @@ function handleBase64Fetch(url, sendResponse) {
 }
 
 function startNovelTranslation() {
+    log.info('Content-Desktop', '執行 startNovelTranslation...');
     const paragraphs = getNovelParagraphs();
+    log.info('Content-Desktop', `找到 ${paragraphs.length} 個段落`);
     if (paragraphs.length === 0) return;
+    
     insertPlaceholders(paragraphs);
+    log.info('Content-Desktop', '佔位符插入完成');
+    
     chrome.storage.local.remove('novelResults');
     // Bug #2 修復：先 clone 段落並移除 .mt-novel-trans，防止重譯時把中文譯文一起送給 AI
     const texts = paragraphs.map(p => {
@@ -86,12 +101,20 @@ function startNovelTranslation() {
         if (trans) trans.remove();
         return clone.textContent.trim();
     });
+    
+    log.info('Content-Desktop', `準備發送 ADD_TO_QUEUE 訊息，texts 數量: ${texts.length}`);
     chrome.runtime.sendMessage({
         action: 'ADD_TO_QUEUE',
         payload: {
             tabId: null,
             startIndex: 0,
             texts: texts
+        }
+    }, (response) => {
+        if (chrome.runtime.lastError) {
+            log.error('Content-Desktop', 'ADD_TO_QUEUE 失敗:', chrome.runtime.lastError.message);
+        } else {
+            log.info('Content-Desktop', 'ADD_TO_QUEUE 成功:', response);
         }
     });
 }
