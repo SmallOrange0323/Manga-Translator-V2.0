@@ -222,6 +222,7 @@ document.getElementById('mt-start-btn').onclick = () => {
 
                 if (chrome.runtime.lastError) {
                     console.error('[Manga][SP] crawlImages 失敗:', chrome.runtime.lastError.message);
+                    alert('無法與頁面建立連線 (或網頁目前為行動模式)。詳細錯誤：' + chrome.runtime.lastError.message);
                     return;
                 }
                 if (response && Array.isArray(response.images)) {
