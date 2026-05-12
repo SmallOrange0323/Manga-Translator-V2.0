@@ -221,11 +221,16 @@ export function crawlImages() {
         let height = img.naturalHeight || img.height || img.offsetHeight;
         let url = img.src; // 取得預設解析的絕對路徑
         
-        // Lazy Load 處理：真實圖片通常在 data-src 或 data-lazy-src
-        const dataSrc = img.getAttribute('data-src') || img.getAttribute('data-lazy-src');
+        // Lazy Load 處理：真實圖片通常在特殊屬性中
+        const lazyAttrs = ['data-src', 'data-lazy-src', 'data-original', 'data-src-img', 'data-url'];
+        let dataSrc = null;
+        for (const attr of lazyAttrs) {
+            dataSrc = img.getAttribute(attr);
+            if (dataSrc) break;
+        }
+
         if (dataSrc) {
-            // 由於 data-src 可能是相對路徑 (如 /uploads/img.jpg 或 //domain.com/img.jpg)
-            // 傳給側邊欄 (chrome-extension://) 時會破圖，必須轉為絕對路徑
+            // 由於 data-src 可能是相對路徑，必須轉為絕對路徑
             try {
                 if (dataSrc.startsWith('//')) {
                     url = window.location.protocol + dataSrc;
@@ -245,17 +250,21 @@ export function crawlImages() {
         }
         
         // 過濾條件：
+        // 修改：小於 100x100 的圖示無論如何都當作雜訊 (Smileys usually 30-50px)
+        const isExtremelySmall = (width > 0 && width < 100) || (height > 0 && height < 100);
+        // 原本的寬鬆過濾 (給不在 manga container 的圖片)
         const isTooSmall = (width < 300 || height < 300);
-        const junkKeywords = ['emoji', 'avatar', 'icon', 'logo', 'ads', 'button', 'banner'];
-        const isJunk = junkKeywords.some(key => url.toLowerCase().includes(key));
+        
+        const junkKeywords = ['emoji', 'avatar', 'icon', 'logo', 'ads', 'button', 'banner', 'reaction'];
+        const isJunk = junkKeywords.some(key => url && url.toLowerCase().includes(key));
         
         // 判斷是否在漫畫容器內
         const isInMangaContainer = MANGA_CONTAINERS.some(selector => img.closest(selector));
 
-        // 1. 尺寸夠大 (排除小圖示)
-        // 2. 或明確在漫畫容器內
-        // 3. 且網址不含雜訊關鍵字
-        if (((!isTooSmall) || isInMangaContainer) && !isJunk) {
+        // 1. 不是極小圖示
+        // 2. 且 (尺寸夠大 或 在漫畫容器內)
+        // 3. 且 網址不含雜訊關鍵字
+        if (!isExtremelySmall && ((!isTooSmall) || isInMangaContainer) && !isJunk) {
             // 過濾掉明顯是 Logo 或小 Icon 的 base64 碎圖
             if (url && !url.includes('data:image/svg+xml') && !url.includes('data:image/gif;base64,R0lGOD')) {
                 mangaImages.push({
