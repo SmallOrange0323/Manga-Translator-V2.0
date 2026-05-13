@@ -823,8 +823,18 @@ function openNewResultPage(sourceTabId, images, navLinks, mangaKey) {
 
 // PC 模式的專屬翻譯處理器 (並行版本 - 使用 Semaphore 控制並發數)
 async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLinks = null) {
+    // 輔助函式：廣播狀態給行動端來源分頁的日誌面板
+    const broadcastStatus = (msg, type = 'info') => {
+        if (!sourceTabId) return;
+        chrome.tabs.sendMessage(sourceTabId, {
+            action: 'TRANSLATION_STATUS',
+            payload: { msg, type }
+        }).catch(() => {});
+    };
+
     // 1. 通知閱讀器清空舊結果並準備開始
     chrome.tabs.sendMessage(resultTabId, { action: 'clearResults' });
+    broadcastStatus(`🚀 開始翻譯 ${images.length} 張圖片...`, 'info');
 
     // 2. 初始化進度條
     chrome.tabs.sendMessage(resultTabId, {
@@ -1096,6 +1106,7 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
             completedCount++;
 
             if (!res || res.error) {
+                broadcastStatus(`❌ 第 ${completedCount} 張翻譯失敗: ${res?.error || '無回應'}`, 'error');
                 chrome.tabs.sendMessage(resultTabId, {
                     action: 'appendResult',
                     data: { image: imgSrc, error: res?.error || '翻譯失敗或無回應' }
@@ -1158,6 +1169,7 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
     }
 
     chrome.tabs.sendMessage(resultTabId, { action: 'batchComplete' });
+    broadcastStatus(`✅ 全部 ${images.length} 張翻譯完成！請查看結果頁。`, 'success');
     // 廣播任務完成，讓 Sidepanel 恢復開始按鈕
     chrome.runtime.sendMessage({ action: 'TRANSLATION_DONE' }).catch(() => {});
     // 修復 Bug #矛盾2：任務完成後重置為 false，而非設為 true

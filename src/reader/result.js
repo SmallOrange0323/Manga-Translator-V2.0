@@ -793,9 +793,11 @@ function resetNavButtons() {
 let mobileReaderInitialized = false;
 
 function initMobileReader() {
-    // 優先使用 URL 參數 ?mobile=1 判斷（新分頁不受 DevTools 模擬影響）
-    // 若無參數則 fallback 到螢幕寬度判斷
-    const isMobileMode = new URLSearchParams(location.search).get('mobile') === '1' || window.innerWidth <= 768;
+    // 優先使用 URL 參數 ?mobile=1 判斷（行動端跳轉時帶入）
+    // 備援：偵測觸控裝置（Android 平板/iPad 不依賴螢幕寬度判斷）
+    const hasTouchAndMobileUA = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isMobileMode = new URLSearchParams(location.search).get('mobile') === '1' || hasTouchAndMobileUA;
     if (!isMobileMode) return;
     if (mobileReaderInitialized) return;
     mobileReaderInitialized = true;

@@ -145,6 +145,8 @@ export function initMobileMode() {
     /* 底部操作 */
     .drawer-footer {
       padding: 16px;
+      /* 修復大平板問題：safe-area-inset-bottom 確保不被系統導覽列遮住 */
+      padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
       border-top: 1px solid rgba(128,128,128,0.2);
     }
     .primary-btn {
@@ -159,6 +161,30 @@ export function initMobileMode() {
       cursor: pointer;
     }
     .primary-btn:disabled { opacity: 0.5; }
+
+    /* 狀態日誌面板 */
+    .log-panel {
+      background: rgba(0,0,0,0.06);
+      border-radius: 8px;
+      padding: 10px;
+      margin-top: 12px;
+      font-size: 12px;
+      font-family: monospace;
+      max-height: 120px;
+      overflow-y: auto;
+      display: none;
+    }
+    .log-panel.visible { display: block; }
+    .log-entry { padding: 2px 0; line-height: 1.4; }
+    .log-entry.ok { color: #22c55e; }
+    .log-entry.err { color: #ef4444; }
+    .log-entry.info { opacity: 0.7; }
+    .log-toggle {
+      background: none; border: none;
+      font-size: 11px; color: var(--edge-blue);
+      cursor: pointer; padding: 4px 0;
+      display: block; width: 100%; text-align: right;
+    }
   `;
   shadow.appendChild(style);
 
@@ -185,6 +211,8 @@ export function initMobileMode() {
     </div>
     <div class="drawer-footer">
       <button class="primary-btn" id="drawer-submit" disabled>開始翻譯 (0)</button>
+      <button class="log-toggle" id="log-toggle-btn">▸ 顯示 API 狀態日誌</button>
+      <div class="log-panel" id="api-log-panel"></div>
     </div>
   `;
 
@@ -286,6 +314,26 @@ export function initMobileMode() {
     btn.textContent = `開始翻譯 (${selectedIndices.size})`;
   };
 
+  // 狀態日誌輔助函式
+  const logPanel = drawer.querySelector('#api-log-panel');
+  const logToggleBtn = drawer.querySelector('#log-toggle-btn');
+  logToggleBtn.onclick = () => {
+    const visible = logPanel.classList.toggle('visible');
+    logToggleBtn.textContent = visible ? '▾ 隱藏 API 狀態日誌' : '▸ 顯示 API 狀態日誌';
+  };
+  function appendLog(msg, type = 'info') {
+    const entry = document.createElement('div');
+    entry.className = `log-entry ${type}`;
+    entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    logPanel.appendChild(entry);
+    logPanel.scrollTop = logPanel.scrollHeight;
+    // 有錯誤時自動展開
+    if (type === 'err' && !logPanel.classList.contains('visible')) {
+      logPanel.classList.add('visible');
+      logToggleBtn.textContent = '▾ 隱藏 API 狀態日誌';
+    }
+  }
+
   // 事件綁定
   triggerBtn.onclick = () => toggleDrawer(true);
   overlay.onclick = () => toggleDrawer(false);
@@ -297,23 +345,27 @@ export function initMobileMode() {
     const selected = Array.from(selectedIndices).map(i => foundImages[i]);
     if (selected.length === 0) return;
     
+    appendLog(`準備送出 ${selected.length} 張圖片至 API...`, 'info');
     toggleDrawer(false);
-    // 修復 Bug #1：Content Script 本身就跑在來源分頁上，
-    // 透過 chrome.tabs.getCurrent 無法取得分頁 ID（Content Script 不適用）
-    // 改為讓 Background 從 sender.tab.id 自動取得，payload 不傳 tabId
-    // Background 的 handler: if (!tabId && sender.tab) tabId = sender.tab.id;
     chrome.runtime.sendMessage({ 
       action: 'START_MANGA_BATCH_PC_MODE', 
       payload: { 
-        // tabId 省略：Background 會從 sender.tab.id 自動填入（已有此容錯邏輯）
         images: selected,
         navLinks: foundNavLinks,
         mobile: true
       } 
+    }, (resp) => {
+      if (chrome.runtime.lastError) {
+        appendLog('❌ 送出失敗: ' + chrome.runtime.lastError.message, 'err');
+      } else {
+        appendLog('✅ 已送出，等待翻譯回應...', 'ok');
+      }
+      // 重新打開抽屜以顯示狀態
+      toggleDrawer(true);
     });
   };
 
-  // 監聽背景訊息 (支援小說模式)
+  // 監聽背景訊息 (支援小說模式 + API 狀態回報)
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'translateNovelPage' || request.action === 'AUTO_TRANSLATE_PAGE') {
         startNovelTranslation();
@@ -327,6 +379,13 @@ export function initMobileMode() {
             images: results.images, 
             navLinks: results.navLinks 
         });
+        return false;
+    }
+
+    // [新增] 接收背景廣播的 API 狀態訊息，顯示在行動端日誌面板
+    if (request.action === 'TRANSLATION_STATUS') {
+        const { type, msg } = request.payload || {};
+        appendLog(msg || '（無說明）', type === 'error' ? 'err' : type === 'success' ? 'ok' : 'info');
         return false;
     }
 
