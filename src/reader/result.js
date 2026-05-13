@@ -67,6 +67,32 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('export-html-btn')?.addEventListener('click', saveAsHTML);
     document.getElementById('export-pdf-btn')?.addEventListener('click', () => window.print());
 
+    // 【新增】切換模式功能
+    const toggleModeBtn = document.getElementById('toggle-mode-btn');
+    if (toggleModeBtn) {
+        const urlParams = new URLSearchParams(location.search);
+        const hasTouchAndMobileUA = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+            (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        const isCurrentlyMobile = urlParams.get('mobile') === '1' || 
+                                  (hasTouchAndMobileUA && urlParams.get('desktop') !== '1');
+        
+        toggleModeBtn.innerHTML = isCurrentlyMobile 
+            ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>電腦版`
+            : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>行動版`;
+        
+        toggleModeBtn.addEventListener('click', () => {
+            const params = new URLSearchParams(window.location.search);
+            if (isCurrentlyMobile) {
+                params.delete('mobile');
+                params.set('desktop', '1');
+            } else {
+                params.set('mobile', '1');
+                params.delete('desktop');
+            }
+            window.location.search = params.toString();
+        });
+    }
+
     // [新增] 綁定中止翻譯按鈕
     const stopBtn = document.getElementById('btn-stop-translation');
     if (stopBtn) {
@@ -797,7 +823,9 @@ function initMobileReader() {
     // 備援：偵測觸控裝置（Android 平板/iPad 不依賴螢幕寬度判斷）
     const hasTouchAndMobileUA = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    const isMobileMode = new URLSearchParams(location.search).get('mobile') === '1' || hasTouchAndMobileUA;
+    const urlParams = new URLSearchParams(location.search);
+    const isMobileMode = urlParams.get('mobile') === '1' || 
+                         (hasTouchAndMobileUA && urlParams.get('desktop') !== '1');
     if (!isMobileMode) return;
     if (mobileReaderInitialized) return;
     mobileReaderInitialized = true;
