@@ -12,11 +12,16 @@ function isMobileDevice() {
     
     // 2. iPadOS 13+ 偽裝偵測 (桌面模式下會隱藏 iPad 字樣，特徵為 MacIntel 且支援多點觸控)
     const isIPadOS = (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    
-    // 修復矛盾 #3：移除「寬度 <= 1280 且有觸控」的寬鬆判斷
-    // 此條件會使 Surface 等 Windows 觸控筆電誤判為行動端，改為只信任 UA 與 iPadOS 特徵
-    
-    return uaMobile || isIPadOS;
+
+    // 3. Android 平板「桌面模式」偵測：Edge/Chrome 在大平板上開啟桌面模式後會移除 UA 中的 Android，
+    //    但觸控點數特徵仍在。條件：多點觸控 + 非 Windows 平台（排除 Surface 等 Windows 觸控筆電）
+    const isAndroidTabletDesktopMode = (
+        navigator.maxTouchPoints >= 2 &&
+        !navigator.userAgent.includes('Windows') &&
+        !navigator.platform.toLowerCase().startsWith('win')
+    );
+
+    return uaMobile || isIPadOS || isAndroidTabletDesktopMode;
 }
 
 function bootstrap() {
