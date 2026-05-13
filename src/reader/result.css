@@ -1308,6 +1308,14 @@ body.theme-priconne .skeleton-anim {
     }
 
     /* ── 全域固定翻譯按鈕（FAB，fixed 定位，不依附卡片）── */
+    .loading-overlay {
+        bottom: 85px !important;
+        right: auto !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        white-space: nowrap;
+    }
+
     #mt-mobile-fab {
         position: fixed;
         bottom: 24px;

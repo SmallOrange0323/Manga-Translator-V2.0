@@ -972,13 +972,20 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
             ? `第 ${currentBatchIndex} / ${totalBatches} 批 (圖片 ${i + 1}~${Math.min(i + batchSize, images.length)})`
             : `${i + 1} / ${images.length}`;
         chrome.tabs.sendMessage(resultTabId, { action: 'updateProgress', current: progressText, total: images.length });
+        broadcastStatus(`⏳ 正在處理 ${progressText}...`, 'info');
 
         // 並行抓取本批圖片 Base64
         const base64Results = await Promise.all(currentBatch.map(async (imgData) => {
             const imgSrc = imgData.src || imgData;
             if (imgSrc.startsWith('data:image')) return imgSrc.split(',')[1];
             try {
-                const res = await fetch(imgSrc);
+                // 加入 10 秒逾時機制，防止 fetch 無限期掛起
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                
+                const res = await fetch(imgSrc, { signal: controller.signal });
+                clearTimeout(timeoutId);
+                
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const ab = await res.arrayBuffer();
                 const bytes = new Uint8Array(ab);
@@ -988,6 +995,7 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
             } catch (fetchErr) {
                 // 退回 Content Script 備援
                 log.warn('Background', `圖片直接抓取失敗，退回 Content Script: ${fetchErr.message}`);
+                broadcastStatus(`⚠️ 圖片抓取逾時或失敗，嘗試透過網頁端抓取...`, 'warn');
                 if (sourceTabId && sourceTabId !== 'current') {
                     const resp = await Promise.race([
                         new Promise(resolve => chrome.tabs.sendMessage(sourceTabId, { action: 'fetchBase64', url: imgSrc }, resolve)),
