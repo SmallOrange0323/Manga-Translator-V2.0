@@ -1070,6 +1070,7 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
             } catch (batchErr) {
                 // 批次失敗備援：並行逐張翻譯
                 log.warn('Background', `[批次] 批次處理失敗，啟動備援並行逐張翻譯 (Key 數量: ${state.apiKeys.length}): ${batchErr.message}`);
+                broadcastStatus(`❌ 批次失敗: ${batchErr.message.slice(0, 40)}... 啟動備援機制`, 'err');
                 
                 // 【核心變更】使用 KeyRateLimiter 實現「每 Key 獨立冷卻」 (已改為靜態匯入)
                 const limiter = new KeyRateLimiter(state.apiKeys, requestDelay);
@@ -1094,8 +1095,10 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
                             }
                         });
                         fallbackResults[k] = result;
+                        broadcastStatus(`第 ${item.originalIdx + 1} 張備援翻譯成功`, 'ok');
                     } catch (singleErr) {
                         log.warn('Background', `[備援] 第 ${item.originalIdx + 1} 張翻譯失敗 (Key: ${state.getApiKeyAlias(apiKey)}): ${singleErr.message}`);
+                        broadcastStatus(`❌ 第 ${item.originalIdx + 1} 張備援失敗: ${singleErr.message.slice(0, 30)}`, 'err');
                         fallbackResults[k] = { error: singleErr.message };
                     }
                 }));
