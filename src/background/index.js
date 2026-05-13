@@ -990,7 +990,10 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
                 const ab = await res.arrayBuffer();
                 const bytes = new Uint8Array(ab);
                 let binary = '';
-                for (let b = 0; b < bytes.byteLength; b++) binary += String.fromCharCode(bytes[b]);
+                const chunk_size = 0x8000; // 32KB 分塊
+                for (let b = 0; b < bytes.byteLength; b += chunk_size) {
+                    binary += String.fromCharCode.apply(null, bytes.subarray(b, b + chunk_size));
+                }
                 return btoa(binary);
             } catch (fetchErr) {
                 // 退回 Content Script 備援

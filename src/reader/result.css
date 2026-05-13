@@ -1375,7 +1375,7 @@ body.theme-priconne .skeleton-anim {
     /* ── Nav Footer ── */
     .nav-footer { 
         display: flex; 
-        padding-bottom: 100px; /* 避免被 FAB 按鈕和 loading pill 蓋住 */
+        padding-bottom: 160px !important; /* 增加邊距，避免被 Edge 等瀏覽器的底部導航列與 FAB 遮擋 */
         z-index: 200;
     }
 
