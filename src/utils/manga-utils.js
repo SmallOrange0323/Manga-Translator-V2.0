@@ -45,7 +45,12 @@ export function extractMangaTitle(titleStr) {
     return { displayName: name, rawJapanese: null, romanKey: name };
   }
 
-  // 模式 4：萬用降級 (Fallback) 移除，避免過度激進地匹配非漫畫網頁，洩漏使用者隱私
+  // 模式 4：萬用降級 (Fallback)
+  const fallbackMatch = str.match(/^([^|｜\-–—\n]{3,})/);
+  if (fallbackMatch) {
+      const name = fallbackMatch[1].trim();
+      return { displayName: name, rawJapanese: null, romanKey: name };
+  }
 
   return null;
 }
