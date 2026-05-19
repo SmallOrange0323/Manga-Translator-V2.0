@@ -707,6 +707,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true; // 非同步
   }
 
+  // ── 改動3：整批重試 — 一鍵重試所有失敗圖片（不開新分頁） ──
+  if (message.action === 'RETRY_FAILED_BATCH') {
+      const { images, sourceTabId: retrySourceTabId } = message;
+      // resultTabId 優先使用 message 帶來的值，若為 null 則以 sender（result 頁自身）作為回傳目標
+      const retryResultTabId = message.resultTabId || sender.tab?.id;
+      if (!images || images.length === 0 || !retryResultTabId) {
+          sendResponse({ status: 'error', error: '缺少圖片清單或結果分頁 ID' });
+          return false;
+      }
+      // 重置停止旗標
+      state.set('isStopping', false);
+      // 直接以現有 resultTabId 啟動批次翻譯（不建立新分頁）
+      processMangaBatchPCMode(retrySourceTabId || null, retryResultTabId, images, null);
+      log.info('Background', `[重試批次] 收到 ${images.length} 張失敗圖片，開始重試翻譯... (resultTabId: ${retryResultTabId})`);
+      sendResponse({ status: 'retrying' });
+      return false;
+  }
+
   return false;
 });
 
@@ -1071,44 +1089,78 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
                     }
                 }
             } catch (batchErr) {
-                // 批次失敗備援：並行逐張翻譯
-                log.warn('Background', `[批次] 批次處理失敗，啟動備援並行逐張翻譯 (Key 數量: ${state.apiKeys.length}): ${batchErr.message}`);
-                broadcastStatus(`❌ 批次失敗: ${batchErr.message.slice(0, 40)}... 啟動備援機制`, 'err');
-                
-                // 【核心變更】使用 KeyRateLimiter 實現「每 Key 獨立冷卻」 (已改為靜態匯入)
-                const limiter = new KeyRateLimiter(state.apiKeys, requestDelay);
-                const fallbackResults = new Array(validItems.length).fill(null);
+                // 【改動2】多 Key 輪流嘗試主模型批次翻譯，全部失敗才切備援模型
+                log.warn('Background', `[批次] 主模型批次翻譯失敗 (Key1)，開始輪流嘗試其他 Key: ${batchErr.message}`);
+                broadcastStatus(`⚠️ 批次翻譯失敗，嘗試其他 API Key...`, 'warn');
 
-                await Promise.all(validItems.map(async (item, k) => {
-                    const apiKey = await limiter.acquireKey(); // 取得冷卻完畢的 Key
+                let batchSucceeded = false;
+
+                // 輪流嘗試剩餘的 API Key（跳過第一個已失敗的 Key，從第二個開始）
+                const allKeys = [...state.apiKeys];
+                for (let ki = 1; ki < allKeys.length; ki++) {
+                    const retryKey = allKeys[ki];
                     try {
-                        // 檢查是否中斷
-                        if (await state.get('isStopping')) return;
+                        log.info('Background', `[批次] Key${ki + 1} (${state.getApiKeyAlias(retryKey)}) 嘗試批次翻譯...`);
+                        broadcastStatus(`⏳ 嘗試 Key${ki + 1} 批次翻譯...`, 'info');
 
-                        const result = await translateTexts([], {
-                            model: fallbackModelName,
-                            apiKey: apiKey, // 指定該 Key
-                            prompt: finalPrompt,
-                            glossarySnippet,
-                            imageBase64: item.b64,
-                            schema: {
-                                type: 'OBJECT',
-                                properties: { results: { type: 'ARRAY', items: { type: 'OBJECT', properties: { original: { type: 'STRING' }, translation: { type: 'STRING' } }, required: ['original', 'translation'] } } },
-                                required: ['results']
-                            }
-                        });
-                        fallbackResults[k] = result;
-                        broadcastStatus(`第 ${item.originalIdx + 1} 張備援翻譯成功`, 'ok');
-                    } catch (singleErr) {
-                        log.warn('Background', `[備援] 第 ${item.originalIdx + 1} 張翻譯失敗 (Key: ${state.getApiKeyAlias(apiKey)}): ${singleErr.message}`);
-                        broadcastStatus(`❌ 第 ${item.originalIdx + 1} 張備援失敗: ${singleErr.message.slice(0, 30)}`, 'err');
-                        fallbackResults[k] = { error: singleErr.message };
+                        for (const subBatch of subBatches) {
+                            const subResults = await callGeminiAPIBatch(
+                                subBatch.map(v => v.b64),
+                                finalPrompt,
+                                glossarySnippet,
+                                retryKey  // 指定使用此 Key
+                            );
+                            subBatch.forEach((item, k) => {
+                                allPageResults[item.originalIdx] = subResults[k] || { error: '批次結果不足' };
+                            });
+                        }
+                        log.info('Background', `[批次] Key${ki + 1} 批次翻譯成功！`);
+                        broadcastStatus(`✅ Key${ki + 1} 批次翻譯成功`, 'ok');
+                        batchSucceeded = true;
+                        break;
+                    } catch (retryErr) {
+                        log.warn('Background', `[批次] Key${ki + 1} 批次翻譯失敗: ${retryErr.message}`);
                     }
-                }));
+                }
 
-                validItems.forEach((item, k) => {
-                    allPageResults[item.originalIdx] = fallbackResults[k] || { error: '備援翻譯結果缺失' };
-                });
+                // 所有 Key 批次均失敗，才啟動備援模型 (Gemma) 逐張翻譯
+                if (!batchSucceeded) {
+                    log.warn('Background', `[批次] 所有 Key (${allKeys.length} 個) 批次翻譯均失敗，啟動備援模型逐張翻譯 (${fallbackModelName})`);
+                    broadcastStatus(`❌ 所有 Key 批次失敗，啟動備援模型逐張翻譯...`, 'err');
+
+                    const limiter = new KeyRateLimiter(state.apiKeys, requestDelay);
+                    const fallbackResults = new Array(validItems.length).fill(null);
+
+                    await Promise.all(validItems.map(async (item, k) => {
+                        const apiKey = await limiter.acquireKey();
+                        try {
+                            if (await state.get('isStopping')) return;
+
+                            const result = await translateTexts([], {
+                                model: fallbackModelName,
+                                apiKey: apiKey,
+                                prompt: finalPrompt,
+                                glossarySnippet,
+                                imageBase64: item.b64,
+                                schema: {
+                                    type: 'OBJECT',
+                                    properties: { results: { type: 'ARRAY', items: { type: 'OBJECT', properties: { original: { type: 'STRING' }, translation: { type: 'STRING' } }, required: ['original', 'translation'] } } },
+                                    required: ['results']
+                                }
+                            });
+                            fallbackResults[k] = result;
+                            broadcastStatus(`第 ${item.originalIdx + 1} 張備援翻譯成功`, 'ok');
+                        } catch (singleErr) {
+                            log.warn('Background', `[備援] 第 ${item.originalIdx + 1} 張翻譯失敗 (Key: ${state.getApiKeyAlias(apiKey)}): ${singleErr.message}`);
+                            broadcastStatus(`❌ 第 ${item.originalIdx + 1} 張備援失敗: ${singleErr.message.slice(0, 30)}`, 'err');
+                            fallbackResults[k] = { error: singleErr.message };
+                        }
+                    }));
+
+                    validItems.forEach((item, k) => {
+                        allPageResults[item.originalIdx] = fallbackResults[k] || { error: '備援翻譯結果缺失' };
+                    });
+                }
             }
         }
 

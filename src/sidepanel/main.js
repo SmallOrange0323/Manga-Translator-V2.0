@@ -1,13 +1,57 @@
 import { state } from '../utils/state.js';
 import { extractMangaTitle } from '../utils/manga-utils.js';
-import { LOADING_GIF_FILENAME } from '../utils/constants.js';
+import { LOADING_GIF_FILENAME, RUNNING_ANIMS, STANDING_ASSETS, PRICONNE_LOADING_SPRITES } from '../utils/constants.js';
 
 console.log('[Manga Translator V2] Classic Sidepanel Initialized');
 
-// 載入動畫元素
+// ── 主題相關狀態 ──
+let currentTheme = 'umamusume';
+
+/**
+ * setRandomBackground — 依當前主題隨機選取一張立繪作為側邊欄背景
+ */
+function setRandomBackground() {
+    const bgImg = document.getElementById('mt-sidebar-bg');
+    if (!bgImg) return;
+    if (currentTheme === 'priconne') {
+        const list = STANDING_ASSETS.priconne;
+        const file = list[Math.floor(Math.random() * list.length)];
+        bgImg.src = chrome.runtime.getURL(`assets/standing_priconne/${file}`);
+    } else {
+        const list = STANDING_ASSETS.umamusume;
+        const file = list[Math.floor(Math.random() * list.length)];
+        bgImg.src = chrome.runtime.getURL(`assets/standing/${file}`);
+    }
+}
+
+/**
+ * setThemeLoading — 依當前主題設定 Loading 動畫圖片
+ * 馬娘：隨機跑步 webp；公連：隨機 sprite 分格動畫（CSS）
+ */
+function setThemeLoading() {
+    const loadingImg = document.getElementById('mt-loading-gif');
+    if (!loadingImg) return;
+    if (currentTheme === 'priconne') {
+        const sprite = PRICONNE_LOADING_SPRITES[Math.floor(Math.random() * PRICONNE_LOADING_SPRITES.length)];
+        const url = chrome.runtime.getURL(`assets/loading_priconne/${sprite.file}`);
+        const frameH = 128; // 每幀高度 (px)，sprite 為直式分格
+        loadingImg.style.cssText = `
+            width: 96px; height: ${frameH}px;
+            background: url('${url}') no-repeat top center;
+            background-size: 100% auto;
+            image-rendering: pixelated;
+            animation: priconne-sprite-anim ${sprite.frames * 0.08}s steps(${sprite.frames}) infinite;
+        `;
+        loadingImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; // 1x1 透明
+    } else {
+        const randomAnim = RUNNING_ANIMS[Math.floor(Math.random() * RUNNING_ANIMS.length)];
+        loadingImg.style.cssText = 'width: 120px; height: auto; border-radius: 50%; box-shadow: 0 4px 15px rgba(0,0,0,0.1);';
+        loadingImg.src = chrome.runtime.getURL(`assets/running/${randomAnim}`);
+    }
+}
+
+// 載入動畫元素初始化（等主題確認後再設定）
 const loadingOverlay = document.getElementById('mt-loading-overlay');
-const loadingImg = document.getElementById('mt-loading-gif');
-if (loadingImg) loadingImg.src = chrome.runtime.getURL(LOADING_GIF_FILENAME);
 
 // 詞庫狀態列相關元素
 const glossaryBar = document.getElementById('mt-glossary-bar');
@@ -87,16 +131,24 @@ const body = document.body;
 
 // 初始化主題
 state.get('theme', 'theme-umamusume').then(theme => {
+    currentTheme = theme.replace('theme-', '');
     body.className = theme;
+    setRandomBackground();
+    setThemeLoading();
 });
 
 // 主題切換邏輯
 themeToggle.onclick = async () => {
-    const currentTheme = body.className;
-    const nextTheme = currentTheme === 'theme-umamusume' ? 'theme-priconne' : 'theme-umamusume';
-    body.className = nextTheme;
-    await state.set('theme', nextTheme);
-    console.log('[Sidepanel] Theme switched to:', nextTheme);
+    const currentBodyTheme = body.className;
+    const nextBodyTheme = currentBodyTheme === 'theme-umamusume' ? 'theme-priconne' : 'theme-umamusume';
+    body.className = nextBodyTheme;
+    currentTheme = nextBodyTheme.replace('theme-', '');
+    await state.set('theme', nextBodyTheme);
+    setRandomBackground();   // 切換立繪
+    setThemeLoading();       // 切換 Loading 動畫
+    // 同步廣播給結果頁
+    chrome.storage.local.set({ mt_theme: nextBodyTheme });
+    console.log('[Sidepanel] Theme switched to:', nextBodyTheme);
 };
 
 // 訂閱狀態更新 (響應式 UI)

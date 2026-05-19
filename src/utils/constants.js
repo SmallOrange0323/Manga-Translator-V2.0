@@ -2,9 +2,99 @@
 // 遷移自 V1.8.6 (Classic 版) 經過長時間測試優化的黃金提示詞庫
 
 export const LOADING_GIF_FILENAME = 'loading_touhou.gif';
-// 舊版馬娘列表保留作為參考 (或移除)
+
+// 馬娘主題：翻譯 Loading 動畫（跑步 webp），從 public/assets/running/ 隨機選取
 export const RUNNING_ANIMS = [
-    "01_specialweek.webp", "02_silencesuzuka.webp", "03_tokaiteio.webp"
+    "01_specialweek.webp", "02_silencesuzuka.webp", "03_tokaiteio.webp", "04_maruzensky.webp",
+    "05_fujikiseki.webp", "06_oguricap.webp", "07_goldship.webp", "08_vodka.webp",
+    "09_daiwascarlet.webp", "10_taikishuttle.webp", "21_tamamocross.webp", "22_finemotion.webp",
+    "23_biwahayahide.webp", "24_mayanotopgun.webp", "25_manhattancafe.webp", "26_mihonobourbon.webp",
+    "27_mejiroryan.webp", "28_hishiakebono.webp", "29_yukinobijin.webp", "30_riceshower.webp",
+    "31_inesfujin.webp", "32_agnestachyon.webp", "34_inarione.webp", "35_winningticket.webp",
+    "36_airshakur.webp", "37_eishinflash.webp", "38_currenchan.webp", "39_kawakamiprincess.webp",
+    "40_goldcity.webp", "41_sakurabakushino.webp", "42_seekingthepearl.webp", "43_shinkowindy.webp",
+    "44_sweeptosho.webp", "45_supercreek.webp", "46_smartfalcon.webp", "47_zennorobroy.webp",
+    "48_tosenjordan.webp", "49_nakayamafesta.webp", "50_naritataishin.webp"
+];
+
+// 馬娘主題：側邊欄隨機立繪，從 public/assets/standing/ 隨機選取
+// 使用 _02 後綴版本（半身立繪，適合側邊欄顯示）
+export const STANDING_ASSETS = {
+    umamusume: [
+        "admiregroove_02.webp", "admirevega_02.webp", "agnesdigital_02.webp", "agnestachyon_02.webp",
+        "airgroove_02.webp", "airmessiah_02.webp", "airshakur_02.webp", "almondeye_02.webp",
+        "astonmachan_02.webp", "bamboomemory_02.webp", "believe_02.webp", "bikopegasus_02.webp",
+        "biwahayahide_02.webp", "blastonepiece_02.webp", "bubblegumfellow_02.webp", "buenavista_02.webp",
+        "calstonelighto_02.webp", "cesario_02.webp", "chevalgrand_02.webp", "chronogenesis_02.webp",
+        "copanorickey_02.webp", "currenbouquetdor_02.webp", "currenchan_02.webp", "daiichiruby_02.webp",
+        "daitakuhelios_02.webp", "daiwascarlet_02.webp", "dantsuflame_02.webp", "daringheart_02.webp",
+        "daringtact_02.webp", "dreamjourney_02.webp", "duramente_02.webp", "durandal_02.webp",
+        "eishinflash_02.webp", "elcondorpasa_02.webp", "epiphaneia_02.webp", "fenomeno_02.webp",
+        "finemotion_02.webp", "foreveryoung_02.webp", "fujikiseki_02.webp", "furioso_02.webp",
+        "fusaichipandora_02.webp", "gentildonna_02.webp", "goldcity_02.webp", "goldship_02.webp",
+        "grasswonder_02.webp", "haruurara_02.webp", "hishiakebono_02.webp", "hishiamazon_02.webp",
+        "hishimiracle_02.webp", "hokkotarumae_02.webp", "ikunodictus_02.webp", "inarione_02.webp",
+        "inesfujin_02.webp", "junglepocket_02.webp", "k-s-miracle_02.webp", "katsuragiace_02.webp",
+        "kawakamiprincess_02.webp", "kinghalo_02.webp", "kiseki_02.webp", "kitasanblack_02.webp",
+        "logotype_02.webp", "lovesonlyyou_02.webp", "luckylilac_02.webp", "manhattancafe_02.webp",
+        "marchelorraine_02.webp", "maruzensky_02.webp", "marveloussunday_02.webp", "matikanefukukitaru_02.webp",
+        "matikanetannhauser_02.webp", "mayanotopgun_02.webp", "meishodoto_02.webp", "mejiroardan_02.webp",
+        "mejirobright_02.webp", "mejirodober_02.webp", "mejiromcqueen_02.webp", "mejiropalmer_02.webp",
+        "mejiroramonu_02.webp", "mejiroryan_02.webp", "mihonobourbon_02.webp", "mrcb_02.webp",
+        "nakayamafesta_02.webp", "naritabrian_02.webp", "naritataishin_02.webp", "naritatoproad_02.webp",
+        "neouniverse_02.webp", "nicenature_02.webp", "nishinoflower_02.webp", "noreason_02.webp",
+        "northflight_02.webp", "oguricap_02.webp", "orfevre_02.webp", "reddesire_02.webp",
+        "rheinkraft_02.webp", "riceshower_02.webp", "rosekingdom_02.webp", "royceandroyce_02.webp",
+        "rulership_02.webp", "sakurabakushino_02.webp", "sakurachitoseo_02.webp", "sakuralaurel_02.webp",
+        "samsonbig_02.webp", "satonocrown_02.webp", "satonodiamond_02.webp", "seekingthepearl_02.webp",
+        "seiunsky_02.webp", "shinkowindy_02.webp", "silencesuzuka_02.webp", "siriussymboli_02.webp",
+        "smartfalcon_02.webp", "soundsofearth_02.webp", "staygold_02.webp", "stillinlove_02.webp",
+        "supercreek_02.webp", "sweeptosho_02.webp", "symbolikriss_02.webp", "symbolirudolf_02.webp",
+        "taikishuttle_02.webp", "tamamocross_02.webp", "taninogimlet_02.webp", "tapdancecity_02.webp",
+        "tmoperao_02.webp", "tokaiteio_02.webp", "tosenjordan_02.webp", "transcend_02.webp",
+        "tsurumarutsuyoshi_02.webp", "twinturbo_02.webp", "verxina_02.webp", "victoirepisa_02.webp",
+        "vivlos_02.webp", "vodka_02.webp", "winningticket_02.webp", "winvariation_02.webp",
+        "wonderacute_02.webp", "yaenomuteki_02.webp", "yamaninzephyr_02.webp", "yukinobijin_02.webp",
+        "zennorobroy_02.webp"
+    ],
+    priconne: [
+        "figure_01_01.webp", "figure_01_02.webp", "figure_01_03.webp", "figure_01_04.webp",
+        "figure_02_01.webp", "figure_02_02.webp", "figure_02_03.webp",
+        "figure_03_01.webp", "figure_03_02.webp", "figure_03_03.webp",
+        "figure_04_01.webp", "figure_04_02.webp", "figure_04_03.webp",
+        "figure_05_01.webp", "figure_05_02.webp", "figure_05_03.webp",
+        "figure_06_01.webp", "figure_06_02.webp", "figure_06_03.webp",
+        "figure_07_01.webp", "figure_07_02.webp", "figure_07_03.webp", "figure_07_04.webp", "figure_07_05.webp",
+        "figure_08_01.webp", "figure_08_02.webp", "figure_08_03.webp", "figure_08_04.webp",
+        "figure_09_01.webp", "figure_09_02.webp", "figure_09_03.webp", "figure_09_04.webp",
+        "figure_10_01.webp", "figure_10_02.webp", "figure_10_03.webp", "figure_10_04.webp",
+        "figure_11_01.webp", "figure_11_02.webp", "figure_11_03.webp", "figure_11_04.webp",
+        "figure_12_01.webp", "figure_12_02.webp", "figure_12_03.webp", "figure_12_04.webp",
+        "figure_13_01.webp", "figure_13_02.webp", "figure_13_03.webp", "figure_13_04.webp", "figure_13_05.webp",
+        "figure_14_01.webp", "figure_14_02.webp", "figure_14_03.webp",
+        "figure_15_01.webp", "figure_15_02.webp", "figure_15_03.webp", "figure_15_04.webp", "figure_15_05.webp",
+        "figure_17_01.webp", "figure_17_02.webp",
+        "figure_19_01.webp", "figure_19_02.webp",
+        "figure_20_01.webp", "figure_20_02.webp", "figure_20_03.webp",
+        "figure_21_01.webp", "figure_21_02.webp", "figure_21_03.webp",
+        "figure_22_01.webp", "figure_22_02.webp", "figure_22_03.webp",
+        "figure_23_01.webp",
+        "figure_24_01.webp", "figure_24_02.webp",
+        "figure_25_01.webp", "figure_25_02.webp",
+        "figure_26_01.webp", "figure_26_02.webp", "figure_26_03.webp",
+        "figure_27_01.webp", "figure_27_02.webp", "figure_27_03.webp", "figure_27_04.webp", "figure_27_05.webp",
+        "figure_30_01.webp", "figure_30_02.webp", "figure_30_03.webp", "figure_30_04.webp", "figure_30_05.webp", "figure_30_06.webp",
+        "figure_31_01.webp", "figure_31_02.webp", "figure_31_03.webp",
+        "figure_32_01.webp", "figure_32_02.webp", "figure_32_03.webp", "figure_32_04.webp",
+        "figure_33_01.webp", "figure_33_02.webp", "figure_33_03.webp"
+    ]
+};
+
+// 公連主題：Loading Sprite 資訊（CSS 分格動畫）
+export const PRICONNE_LOADING_SPRITES = [
+    { name: 'peco',   frames: 18, file: 'sprite_peco.png'   },
+    { name: 'karyl',  frames: 19, file: 'sprite_karyl.png'  },
+    { name: 'kokkoro',frames: 19, file: 'sprite_kokkoro.png'}
 ];
 
 // =========================================================

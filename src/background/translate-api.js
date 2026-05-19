@@ -282,12 +282,13 @@ ${inputText}`;
  * @param {string} glossarySnippet - 術語注入片段
  * @returns {Array} 長度固定等於 base64Array.length 的結果陣列
  */
-export async function callGeminiAPIBatch(base64Array, customPrompt, glossarySnippet = '') {
+export async function callGeminiAPIBatch(base64Array, customPrompt, glossarySnippet = '', apiKey = null) {
     const n = base64Array.length;
-    const apiKey = state.getNextApiKey();
     const model = await state.get('modelName', 'gemini-1.5-flash');
 
-    if (!apiKey) throw new Error('API Key is missing');
+    // 若未指定 Key，從 Key 池自動選取
+    const resolvedKey = apiKey || state.getNextApiKey();
+    if (!resolvedKey) throw new Error('API Key is missing');
 
     // 組合系統指令 (System Instruction) - 這是觸發 Context Caching 的關鍵穩定前綴
     const systemPrompt = glossarySnippet 
@@ -351,8 +352,8 @@ export async function callGeminiAPIBatch(base64Array, customPrompt, glossarySnip
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     const startTime = performance.now();
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    const keyAlias = state.getApiKeyAlias(apiKey);
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${resolvedKey}`;
+    const keyAlias = state.getApiKeyAlias(resolvedKey);
 
     try {
         const response = await fetch(url, {

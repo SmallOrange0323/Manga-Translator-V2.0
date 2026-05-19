@@ -46,6 +46,20 @@
 
     <main id="results-container" class="results-container"></main>
 
+    <!-- 整批重試按鈕（翻譯完成後有失敗圖片才顯示） -->
+    <div id="retry-all-container" style="display:none; justify-content:center; padding: 12px 0 4px;">
+        <button id="btn-retry-all-failed" style="
+            display: flex; align-items: center; gap: 8px;
+            padding: 10px 22px; border-radius: 24px; border: none;
+            background: linear-gradient(135deg, #f97316, #ef4444);
+            color: #fff; font-size: 14px; font-weight: 700;
+            cursor: pointer; box-shadow: 0 4px 14px rgba(249,115,22,0.4);
+            transition: transform 0.15s, box-shadow 0.15s;
+        ">
+            🔁 重試所有失敗圖片（<span id="retry-failed-count">0</span> 張）
+        </button>
+    </div>
+
     <nav id="nav-footer" class="nav-footer" style="display:none;">
         <button id="prev-btn" class="nav-btn nav-btn--prev">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">

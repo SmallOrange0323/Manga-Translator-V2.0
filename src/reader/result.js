@@ -397,16 +397,29 @@ function refreshGlossaryStatus() {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "appendResult") {
-        translatedData.push(request.data);
-        const idx = translatedData.length - 1;
-        const placeholder = container.querySelector(`.skeleton-card[data-index="${idx}"]`);
+        const imgUrl = request.data?.image || '';
+        // 【改動3】整批重試時：若卡片已存在（依 data-retry-url 定位），直接覆蓋
+        const existingErrorCard = imgUrl
+            ? container.querySelector(`.result-card.is-error[data-retry-url="${CSS.escape(imgUrl)}"]`)
+            : null;
+
         let realCard;
-        if (placeholder) {
-            realCard = buildCard(request.data, idx);
-            placeholder.replaceWith(realCard);
+        if (existingErrorCard) {
+            // 覆蓋模式：原地替換失敗卡片
+            const existingIndex = existingErrorCard.dataset.index;
+            realCard = buildCard(request.data, parseInt(existingIndex) || 0);
+            existingErrorCard.replaceWith(realCard);
         } else {
-            realCard = buildCard(request.data, idx);
-            container.appendChild(realCard);
+            translatedData.push(request.data);
+            const idx = translatedData.length - 1;
+            const placeholder = container.querySelector(`.skeleton-card[data-index="${idx}"]`);
+            if (placeholder) {
+                realCard = buildCard(request.data, idx);
+                placeholder.replaceWith(realCard);
+            } else {
+                realCard = buildCard(request.data, idx);
+                container.appendChild(realCard);
+            }
         }
         // 行動端：綁定點擊事件
         if (window._bindMobileCard) window._bindMobileCard(realCard);
@@ -424,6 +437,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         document.getElementById('loading-overlay').classList.add('hidden');
         container.querySelectorAll('.skeleton-card').forEach(el => el.remove());
         resetNavButtons();
+        updateRetryAllBtn(); // 【改動3】統計失敗張數，更新重試按鈕
     } else if (request.action === "setNavigation") {
         updateNavUI(request.navLinks);
     } else if (request.action === "clearResults") {
@@ -498,6 +512,9 @@ function createPlaceholders(total) {
 function buildCard(item, index) {
     const card = document.createElement('div');
     card.className = 'result-card';
+    // 【改動3】記錄圖片 URL 以便整批重試時定位
+    if (item.image) card.dataset.retryUrl = item.image;
+    card.dataset.index = index;
 
     const imageWrapper = document.createElement('div');
     imageWrapper.className = 'card-image-wrapper';
@@ -962,3 +979,70 @@ function initMobileReader() {
 
 // ── result.js 是 module，執行時 DOMContentLoaded 已觸發，直接呼叫 ──
 initMobileReader();
+
+// ── 【改動3】整批重試功能 ──
+
+/**
+ * updateRetryAllBtn — 統計頁面內失敗卡片數量，顯示或隱藏「重試所有失敗圖片」按鈕
+ */
+function updateRetryAllBtn() {
+    const failedCards = container.querySelectorAll('.result-card.is-error');
+    const count = failedCards.length;
+    const retryContainer = document.getElementById('retry-all-container');
+    const countEl = document.getElementById('retry-failed-count');
+    if (!retryContainer || !countEl) return;
+
+    if (count > 0) {
+        countEl.textContent = count;
+        retryContainer.style.display = 'flex';
+    } else {
+        retryContainer.style.display = 'none';
+    }
+}
+
+// 綁定重試按鈕事件
+document.addEventListener('DOMContentLoaded', () => {
+    const retryBtn = document.getElementById('btn-retry-all-failed');
+    if (!retryBtn) return;
+
+    retryBtn.addEventListener('mouseenter', () => {
+        retryBtn.style.transform = 'scale(1.04)';
+        retryBtn.style.boxShadow = '0 6px 20px rgba(249,115,22,0.55)';
+    });
+    retryBtn.addEventListener('mouseleave', () => {
+        retryBtn.style.transform = 'scale(1)';
+        retryBtn.style.boxShadow = '0 4px 14px rgba(249,115,22,0.4)';
+    });
+
+    retryBtn.addEventListener('click', () => {
+        // 收集所有失敗卡片的 data-retry-url
+        const failedCards = container.querySelectorAll('.result-card.is-error[data-retry-url]');
+        const images = Array.from(failedCards)
+            .map(card => card.dataset.retryUrl)
+            .filter(url => url);
+
+        if (images.length === 0) return;
+
+        if (!confirm(`確定要重新批次翻譯 ${images.length} 張失敗圖片嗎？`)) return;
+
+        // 隱藏按鈕，顯示翻譯中 overlay
+        const retryContainer = document.getElementById('retry-all-container');
+        if (retryContainer) retryContainer.style.display = 'none';
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) overlay.classList.remove('hidden');
+        document.getElementById('progress-text').innerText = `正在重試 ${images.length} 張失敗圖片...`;
+
+        chrome.runtime.sendMessage({
+            action: 'RETRY_FAILED_BATCH',
+            images: images,
+            sourceTabId: sourceTabId,
+            resultTabId: null // background 會用 sender.tab.id 自動填入
+        }, (response) => {
+            if (response?.status !== 'retrying') {
+                alert('重試請求失敗：' + (response?.error || '未知錯誤'));
+                if (overlay) overlay.classList.add('hidden');
+                if (retryContainer) retryContainer.style.display = 'flex';
+            }
+        });
+    });
+});
