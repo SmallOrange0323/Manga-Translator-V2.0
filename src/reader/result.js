@@ -1072,9 +1072,8 @@ function updateRetryAllBtn() {
 }
 
 // 綁定重試按鈕事件
-document.addEventListener('DOMContentLoaded', () => {
-    const retryBtn = document.getElementById('btn-retry-all-failed');
-    if (!retryBtn) return;
+const retryBtn = document.getElementById('btn-retry-all-failed');
+if (retryBtn) {
 
     retryBtn.addEventListener('mouseenter', () => {
         retryBtn.style.transform = 'scale(1.04)';
@@ -1116,4 +1115,4 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     });
-});
+}

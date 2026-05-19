@@ -748,8 +748,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       // 重置停止旗標
       state.set('isStopping', false);
-      // 直接以現有 resultTabId 啟動批次翻譯（不建立新分頁）
-      processMangaBatchPCMode(retrySourceTabId || null, retryResultTabId, images, null);
+      // 直接以現有 resultTabId 啟動批次翻譯（不建立新分頁），並標記為重試 (isRetry = true)
+      processMangaBatchPCMode(retrySourceTabId || null, retryResultTabId, images, null, true);
       log.info('Background', `[重試批次] 收到 ${images.length} 張失敗圖片，開始重試翻譯... (resultTabId: ${retryResultTabId})`);
       sendResponse({ status: 'retrying' });
       return false;
@@ -885,7 +885,7 @@ function setupNewResultPageJob(resultTab, sourceTabId, images, navLinks, mangaKe
 }
 
 // PC 模式的專屬翻譯處理器 (並行版本 - 使用 Semaphore 控制並發數)
-async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLinks = null) {
+async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLinks = null, isRetry = false) {
     // 輔助函式：廣播狀態給行動端來源分頁的日誌面板
     const broadcastStatus = (msg, type = 'info') => {
         if (!sourceTabId) return;
@@ -895,8 +895,10 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
         }).catch(() => {});
     };
 
-    // 1. 通知閱讀器清空舊結果並準備開始
-    chrome.tabs.sendMessage(resultTabId, { action: 'clearResults' });
+    // 1. 通知閱讀器清空舊結果並準備開始 (僅在非重試模式下)
+    if (!isRetry) {
+        chrome.tabs.sendMessage(resultTabId, { action: 'clearResults', expectedCount: images.length });
+    }
     broadcastStatus(`🚀 開始翻譯 ${images.length} 張圖片...`, 'info');
 
     // 通知側邊欄顯示「正在翻譯」動畫卡片（針對跳轉下一話等背景啟動的情況）
