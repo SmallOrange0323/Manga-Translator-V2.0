@@ -37,7 +37,8 @@
         "icon128.png",
         "src/mobile/index.html",
         "src/popup/index.html",
-        "src/popup/main.js"
+        "src/popup/main.js",
+        "src/options/index.html"
       ],
       "matches": [
         "<all_urls>"
