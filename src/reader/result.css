@@ -198,7 +198,7 @@ body {
 .result-card {
     display: flex;
     background: #ffffff;
-    border: 2px solid var(--theme-border);
+    border: 2px solid var(--theme-accent-soft);
     border-left: 6px solid var(--theme-accent);
     border-radius: var(--radius);
     overflow: hidden;
@@ -208,7 +208,7 @@ body {
     animation: cardSlideIn 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 .result-card:hover { 
-    border-color: var(--theme-border-hover);
+    border-color: var(--theme-accent);
     transform: translateY(-4px) scale(1.005);
     box-shadow: 0 12px 32px rgba(106, 90, 211, 0.12);
 }
@@ -230,7 +230,7 @@ body {
     align-items: center;
     position: relative;
     overflow: hidden;
-    border-right: 3px solid var(--theme-border);
+    border-right: 3px solid var(--theme-accent);
 }
 
 .card-image-wrapper img {
