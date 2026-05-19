@@ -862,6 +862,12 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
     chrome.tabs.sendMessage(resultTabId, { action: 'clearResults' });
     broadcastStatus(`🚀 開始翻譯 ${images.length} 張圖片...`, 'info');
 
+    // 通知側邊欄顯示「正在翻譯」動畫卡片（針對跳轉下一話等背景啟動的情況）
+    chrome.runtime.sendMessage({
+        action: 'START_TRANSLATING_CARD',
+        imgCount: images.length
+    }).catch(() => {});
+
     // 2. 初始化進度條
     chrome.tabs.sendMessage(resultTabId, {
         action: 'updateProgress',

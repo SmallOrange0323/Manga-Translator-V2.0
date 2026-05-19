@@ -264,6 +264,14 @@ state.onChanged((changes) => {
 
 // 監聽 batchComplete 訊息恢復 UI 狀態
 chrome.runtime.onMessage.addListener((request) => {
+    if (request.action === 'START_TRANSLATING_CARD') {
+        const stopBtn = document.getElementById('mt-stop-btn');
+        const startBtn = document.getElementById('mt-start-btn');
+        if (stopBtn) stopBtn.style.display = 'flex';
+        if (startBtn) startBtn.style.display = 'none';
+        showTranslatingCard(request.imgCount || 0);
+    }
+
     if (request.action === 'TRANSLATION_DONE') {
         const stopBtn = document.getElementById('mt-stop-btn');
         const startBtn = document.getElementById('mt-start-btn');
