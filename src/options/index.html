@@ -241,6 +241,10 @@
                 <input type="number" id="requestDelay" min="0" max="30000" step="500" value="4000">
                 <small style="color: #888; font-size:12px;">建議：4000 ms（4 秒）。若遇到頻繁的 429 錯誤，可適當增加此數值。</small>
 
+                <label for="imageMaxDimension">傳送至 AI 的圖片最大寬高限制 (px):</label>
+                <input type="number" id="imageMaxDimension" min="0" max="4096" step="128" value="1024">
+                <small style="color: #888; font-size:12px;">等比例縮放至此大小後再傳送給 AI，能大幅加快翻譯速度、節約流量並避免因體積過大被 Google 退件（設為 0 代表傳送原圖，不進行縮放）。</small>
+
                 <button id="fetchModelsBtn" type="button" class="btn-accent" style="width:100%; margin-top:12px;">🔄 從 Google 取得最新模型清單</button>
 
                 <label for="customPrompt">自訂翻譯規則 (Prompt):</label>

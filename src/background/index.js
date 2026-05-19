@@ -785,6 +785,67 @@ async function cropImageBase64(fullBase64, rect) {
     return btoa(binary);
 }
 
+/**
+ * resizeImageBlobToBase64 — 將抓取到的 Blob 轉換為 ImageBitmap，並利用 OffscreenCanvas 等比例縮小到 maxDim (e.g. 1024px) 後，以 JPEG 壓縮格式輸出為 Base64。
+ * 如果 maxDim 為 0 或未設定，則不進行縮放，直接轉 Base64。
+ */
+async function resizeImageBlobToBase64(blob, maxDim) {
+    if (!maxDim || maxDim <= 0) {
+        // 不壓縮，直接轉 base64
+        const arrayBuffer = await blob.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = '';
+        const chunk_size = 0x8000;
+        for (let b = 0; b < bytes.byteLength; b += chunk_size) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(b, b + chunk_size));
+        }
+        return btoa(binary);
+    }
+
+    try {
+        const bitmap = await createImageBitmap(blob);
+        let width = bitmap.width;
+        let height = bitmap.height;
+
+        if (width > maxDim || height > maxDim) {
+            if (width > height) {
+                height = Math.round((height * maxDim) / width);
+                width = maxDim;
+            } else {
+                width = Math.round((width * maxDim) / height);
+                height = maxDim;
+            }
+        }
+
+        const canvas = new OffscreenCanvas(width, height);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(bitmap, 0, 0, width, height);
+        
+        // 匯出為壓縮度較佳的 jpeg (品質設為 0.85 兼顧字體清晰與體積)
+        const compressedBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
+        const arrayBuffer = await compressedBlob.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = '';
+        const chunk_size = 0x8000;
+        for (let b = 0; b < bytes.byteLength; b += chunk_size) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(b, b + chunk_size));
+        }
+        bitmap.close(); // 釋放記憶體
+        return btoa(binary);
+    } catch (err) {
+        log.warn('Background', `圖片壓縮處理失敗，使用原圖傳送: ${err.message}`);
+        // 備援：不壓縮轉 base64
+        const arrayBuffer = await blob.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = '';
+        const chunk_size = 0x8000;
+        for (let b = 0; b < bytes.byteLength; b += chunk_size) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(b, b + chunk_size));
+        }
+        return btoa(binary);
+    }
+}
+
 async function handleProcessScreenshot(rect, tabId) {
     try {
         if (!capturedScreenshotForSelection) {
@@ -1001,17 +1062,19 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
         log.warn('Background', '無導航連結可用，上/下一話按鈕將不顯示');
     }
 
-    // 4. 讀取批次大小設定 (遵循 V1.8.6：Gemma 強制逐張，其他用使用者設定)
+    // 4. 讀取批次大小與圖片大小設定
     const isGemmaMode = modelName.toLowerCase().includes('gemma');
     const ocrBatchSizeSetting = await state.get('ocrBatchSize', 5);
     const batchSize = isGemmaMode ? 1 : (parseInt(ocrBatchSizeSetting) || 1);
     const requestDelay = await state.get('requestDelay', 4000);
+    const maxDim = await state.get('imageMaxDimension', 1024);
+    
     // Bug #4 修復：確保 state 已完成初始化後再讀取 apiKeys 池長度，
     // 避免 SW 冷啟動時 apiKeys 為空陣列導致並行度恒等於 1
     if (!state.isInitialized) await state.init();
     const concurrency = Math.max(1, state.apiKeys.length);
 
-    log.info('Background', `開始批次翻譯：共 ${images.length} 張，批次大小=${batchSize}，備援並行度=${concurrency}`);
+    log.info('Background', `開始批次翻譯：共 ${images.length} 張，批次大小=${batchSize}，傳送尺寸限制=${maxDim}px，備援並行度=${concurrency}`);
 
     let completedCount = 0;
     let allBatchResults = [];
@@ -1051,9 +1114,10 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
         chrome.tabs.sendMessage(resultTabId, { action: 'updateProgress', current: progressText, total: images.length });
         broadcastStatus(`⏳ 正在處理 ${progressText}...`, 'info');
 
-        // 並行抓取本批圖片 Base64
+        // 並行抓取本批圖片 Base64，並依 maxDim 進行等比例縮放
         const base64Results = await Promise.all(currentBatch.map(async (imgData) => {
             const imgSrc = imgData.src || imgData;
+            // 如果 imgSrc 已經是 base64 (或者是 selection 截圖)，不需要 resize，直接使用
             if (imgSrc.startsWith('data:image')) return imgSrc.split(',')[1];
             try {
                 // 加入 10 秒逾時機制，防止 fetch 無限期掛起
@@ -1064,21 +1128,17 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
                 clearTimeout(timeoutId);
                 
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const ab = await res.arrayBuffer();
-                const bytes = new Uint8Array(ab);
-                let binary = '';
-                const chunk_size = 0x8000; // 32KB 分塊
-                for (let b = 0; b < bytes.byteLength; b += chunk_size) {
-                    binary += String.fromCharCode.apply(null, bytes.subarray(b, b + chunk_size));
-                }
-                return btoa(binary);
+                const blob = await res.blob();
+                
+                // 調用 OffscreenCanvas 進行等比例縮放與壓縮
+                return await resizeImageBlobToBase64(blob, maxDim);
             } catch (fetchErr) {
                 // 退回 Content Script 備援
                 log.warn('Background', `圖片直接抓取失敗，退回 Content Script: ${fetchErr.message}`);
                 broadcastStatus(`⚠️ 圖片抓取逾時或失敗，嘗試透過網頁端抓取...`, 'warn');
                 if (sourceTabId && sourceTabId !== 'current') {
                     const resp = await Promise.race([
-                        new Promise(resolve => chrome.tabs.sendMessage(sourceTabId, { action: 'fetchBase64', url: imgSrc }, resolve)),
+                        new Promise(resolve => chrome.tabs.sendMessage(sourceTabId, { action: 'fetchBase64', url: imgSrc, maxDim: maxDim }, resolve)),
                         new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 15000))
                     ]).catch(e => ({ error: e.message }));
                     return resp?.base64 || null;
