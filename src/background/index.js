@@ -249,12 +249,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     state.set('isStopping', false);
     state.set('isBatchPaused', false);
     
-    // 將任務加入全域佇列
-    state.get('novelQueue', []).then(queue => {
-        const currentQueue = Array.isArray(queue) ? queue : Object.values(queue || {});
-        currentQueue.push(payload);
-        return state.set('novelQueue', currentQueue);
-    }).then(() => {
+    // 將任務加入全域佇列 (使用原子化 handleAddToQueue)
+    handleAddToQueue(payload).then(() => {
         processNovelQueue(); // 啟動處理器
     }).catch(err => log.error('Background', 'Queue update failed:', err));
     
@@ -1297,6 +1293,7 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
                     data: { image: imgSrc, error: res?.error || '翻譯失敗或無回應' }
                 });
             } else {
+                await incrementDailyUsage();
                 allBatchResults.push(...(res.results || []));
                 chrome.tabs.sendMessage(resultTabId, {
                     action: 'appendResult',
@@ -1541,31 +1538,9 @@ async function ensureContentScriptInjected(tabId) {
         log.info('Background', `[PrepareTab] 分頁 ${tabId} 已具備環境`);
         return true;
     } catch {
-        // 2. Ping 失敗，嘗試重新注入
-        log.warn('Background', `[PrepareTab] 分頁 ${tabId} 連線失效，嘗試重新注入 Content Script...`);
-        try {
-            const tab = await chrome.tabs.get(tabId);
-            if (!tab.url || !tab.url.startsWith('http')) {
-                log.warn('Background', '[PrepareTab] 非網頁分頁，無法注入腳本');
-                return false;
-            }
-            // 注入 CSS 與 JS — V2 的 content scripts 是動態縮紮到 dist 中，需透過 manifest 路徑導入
-            const scripts = (await chrome.scripting.getRegisteredContentScripts()).map(s => s.js).flat();
-            if (scripts.length > 0) {
-                await chrome.scripting.executeScript({ target: { tabId }, files: scripts.slice(0, 1) });
-            } else {
-                // Fallback: 嘗試透過 scripting API 導入主要 content entry
-                await chrome.scripting.executeScript({
-                    target: { tabId },
-                    func: () => { window.__mt_injected = true; }
-                });
-            }
-            log.info('Background', `[PrepareTab] 分頁 ${tabId} 環境重新注入成功`);
-            return true;
-        } catch (injectErr) {
-            log.error('Background', `[PrepareTab] 環境注入失敗: ${injectErr.message}`);
-            return false;
-        }
+        // 2. Ping 失敗，誠實地返回 false（這將觸發 UI 的 F5 重整提示，對使用者最為透明且安全）
+        log.warn('Background', `[PrepareTab] 分頁 ${tabId} 連線已失效或為孤兒腳本，提示使用者重新整理網頁`);
+        return false;
     }
 }
 
