@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Manga Translator V2.0",
-  "version": "2.2.12",
+  "version": "2.2.1",
   "description": "Modernized Manga Translator with Storage-First Architecture",
   "permissions": [
     "storage",
