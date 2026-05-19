@@ -257,11 +257,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'START_MANGA_BATCH_PC_MODE') {
-      let { tabId, images, mobile, navLinks } = message.payload;
+      let { tabId, images, mobile, navLinks, mangaKey } = message.payload;
       if (!tabId && sender.tab) tabId = sender.tab.id;
       
 
       state.set('isStopping', false);
+      
+      // 紀錄手動選擇的詞庫 key
+      if (mangaKey) {
+          state.get('navigationContext', {}).then(ctx => {
+              ctx[tabId] = mangaKey;
+              state.set('navigationContext', ctx);
+          });
+      }
       
       // 紀錄導航連結
       if (navLinks) {

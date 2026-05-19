@@ -71,12 +71,20 @@ const glossaryNameEl = document.getElementById('mt-glossary-name');
 const glossaryCountEl = document.getElementById('mt-glossary-count');
 const manageBtn = document.getElementById('mt-manage-glossary-btn');
 
+// 手動選取詞庫相關元素
+const glossaryInfoGroup = document.getElementById('mt-glossary-info-group');
+const glossaryManualGroup = document.getElementById('mt-glossary-manual');
+const switchGlossaryBtn = document.getElementById('mt-switch-glossary-btn');
+const glossarySelect = document.getElementById('mt-glossary-select');
+
 let currentMangaKey = null;
+let isManualGlossary = false; // 是否處於手動選擇狀態
 
 /**
  * 刷新側邊欄的作品詞庫狀態
  */
 async function refreshGlossaryStatus() {
+    if (isManualGlossary) return; // 手動模式下不自動更新
     try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (!tab || !tab.title) {
@@ -110,7 +118,7 @@ async function refreshGlossaryStatus() {
 
 // 監聽背景廣播的事件
 chrome.runtime.onMessage.addListener((request) => {
-    if (request.action === 'TITLE_DETECTED') {
+    if (request.action === 'TITLE_DETECTED' && !isManualGlossary) {
         const title = request.payload;
         glossaryBar.style.display = 'flex';
         glossaryNameEl.textContent = title.displayName;
@@ -121,7 +129,7 @@ chrome.runtime.onMessage.addListener((request) => {
 
     if (request.action === 'GLOSSARY_UPDATED') {
         const { mangaKey, termCount } = request.payload;
-        if (mangaKey === currentMangaKey) {
+        if (mangaKey === currentMangaKey && !isManualGlossary) {
             glossaryCountEl.textContent = `${termCount} 詞`;
         }
     }
@@ -132,6 +140,59 @@ chrome.tabs.onActivated.addListener(() => {
     // 稍微延遲確保 tab 資訊已更新
     setTimeout(refreshGlossaryStatus, 300);
 });
+
+// 填充下拉選單
+async function populateGlossaryDropdown() {
+    try {
+        const data = await chrome.storage.local.get(['mangaGlossaries']);
+        const all = data.mangaGlossaries || {};
+        const keys = Object.keys(all).sort((a, b) => {
+            const timeA = all[a].lastUsed || 0;
+            const timeB = all[b].lastUsed || 0;
+            return timeB - timeA;
+        });
+
+        glossarySelect.innerHTML = '<option value="">-- 手動選擇詞庫 --</option>';
+        keys.forEach(key => {
+            const entry = all[key];
+            const opt = document.createElement('option');
+            opt.value = key;
+            opt.textContent = entry.displayName || key;
+            if (key === currentMangaKey) opt.selected = true;
+            glossarySelect.appendChild(opt);
+        });
+    } catch (err) {
+        console.warn('[Sidepanel] Failed to populate dropdown:', err);
+    }
+}
+
+// 手動選取切換
+if (switchGlossaryBtn) {
+    switchGlossaryBtn.onclick = () => {
+        isManualGlossary = !isManualGlossary;
+        if (isManualGlossary) {
+            glossaryInfoGroup.style.display = 'none';
+            glossaryManualGroup.style.display = 'flex';
+            switchGlossaryBtn.textContent = '取消手動';
+            populateGlossaryDropdown();
+        } else {
+            glossaryInfoGroup.style.display = 'flex';
+            glossaryManualGroup.style.display = 'none';
+            switchGlossaryBtn.textContent = '手動選取';
+            refreshGlossaryStatus(); // 恢復自動偵測狀態
+        }
+    };
+}
+
+// 手動選取變更
+if (glossarySelect) {
+    glossarySelect.onchange = () => {
+        if (glossarySelect.value) {
+            currentMangaKey = glossarySelect.value;
+            console.log('[Sidepanel] 手動切換詞庫至:', currentMangaKey);
+        }
+    };
+}
 
 // 管理按鈕：打開選項頁並定位到詞庫區塊 (未來可強化定位)
 manageBtn.onclick = () => {
@@ -453,7 +514,8 @@ document.getElementById('mt-batch-trans-btn').onclick = () => {
             payload: {
                 tabId: tabId,
                 images: selectedUrls,
-                navLinks: candidateNavLinks  // 傳入導航連結，供結果頁顯示上下一話按鈕
+                navLinks: candidateNavLinks, // 傳入導航連結，供結果頁顯示上下一話按鈕
+                mangaKey: currentMangaKey    // 傳入選擇的詞庫 key
             }
         });
         

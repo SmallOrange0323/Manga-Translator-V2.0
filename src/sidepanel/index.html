@@ -95,13 +95,20 @@
 
         </div>
         <div id="mt-glossary-bar" class="mt-glossary-bar" style="display: none;">
-            <div id="mt-glossary-info-group">
+            <div id="mt-glossary-info-group" class="mt-glossary-info">
                 <span class="mt-glossary-icon">📚</span>
                 <span id="mt-glossary-name">正在掃描作品...</span>
-                <span id="mt-glossary-count">0 詞</span>
+                <span id="mt-glossary-count" class="mt-badge-small">0 詞</span>
             </div>
-            <div class="mt-glossary-actions">
-                <button id="mt-manage-glossary-btn" class="mt-link-btn">管理</button>
+            <div id="mt-glossary-manual" class="mt-glossary-manual" style="display:none; align-items:center; gap:6px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; flex:1;">
+                <span class="mt-glossary-icon">⚠️</span>
+                <select id="mt-glossary-select" class="mt-glossary-dropdown" style="font-size:11px; padding:2px 4px; border:1px solid #ddd; border-radius:4px; max-width:140px; outline:none;">
+                    <option value="">-- 手動選擇詞庫 --</option>
+                </select>
+            </div>
+            <div class="mt-glossary-actions" style="display:flex; gap:4px;">
+                <button id="mt-manage-glossary-btn" class="mt-link-btn" style="background:none; border:none; color:var(--theme-accent); padding:2px 4px; cursor:pointer; font-size:11px; font-weight:500; text-decoration:underline;">管理</button>
+                <button id="mt-switch-glossary-btn" class="mt-link-btn" style="background:none; border:none; color:var(--theme-accent); padding:2px 4px; cursor:pointer; font-size:11px; font-weight:500; text-decoration:underline;">手動選取</button>
             </div>
         </div>
     </div>
