@@ -15,31 +15,36 @@ window.onerror = function(msg) {
 };
 
 // ── 開啟設定頁 ──
-btnSettings.addEventListener('click', () => {
+btnSettings.addEventListener('click', async () => {
     try {
+        if (statusMsg) statusMsg.textContent = "正在開啟設定頁面...";
+        
         // 行動端（不支援 sidePanel）的 chrome.runtime.openOptionsPage() 經常失效，故直接使用 tabs.create
         const isMobileDevice = !(chrome.sidePanel && typeof chrome.sidePanel.open === 'function');
         if (isMobileDevice) {
-            chrome.tabs.create({ url: chrome.runtime.getURL('src/options/index.html') });
+            await chrome.tabs.create({ url: chrome.runtime.getURL('src/options/index.html') });
             window.close();
             return;
         }
 
         // 電腦端採用標準 options page 方法
-        chrome.runtime.openOptionsPage(() => {
+        chrome.runtime.openOptionsPage(async () => {
             if (chrome.runtime.lastError) {
-                chrome.tabs.create({ url: chrome.runtime.getURL('src/options/index.html') });
-                window.close();
+                await chrome.tabs.create({ url: chrome.runtime.getURL('src/options/index.html') });
             }
+            window.close();
         });
-        window.close();
     } catch (e) {
         console.warn('openOptionsPage failed, trying fallback tabs.create:', e);
         try {
-            chrome.tabs.create({ url: chrome.runtime.getURL('src/options/index.html') });
+            await chrome.tabs.create({ url: chrome.runtime.getURL('src/options/index.html') });
             window.close();
         } catch (err) {
             console.error('Options fallback failed:', err);
+            if (statusMsg) {
+                statusMsg.style.color = "red";
+                statusMsg.textContent = "開啟失敗: " + err.message;
+            }
         }
     }
 });
