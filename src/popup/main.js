@@ -17,22 +17,18 @@ window.onerror = function(msg) {
 // ── 開啟設定頁 ──
 btnSettings.addEventListener('click', async () => {
     try {
-        alert("⚙️ 開啟設定按鈕已點擊！");
         if (statusMsg) statusMsg.textContent = "正在開啟設定頁面...";
         
         // 行動端（不支援 sidePanel）的 chrome.runtime.openOptionsPage() 經常失效，故直接使用 tabs.create
         const isMobileDevice = !(chrome.sidePanel && typeof chrome.sidePanel.open === 'function');
-        alert("是否判斷為行動端: " + isMobileDevice);
         
         if (isMobileDevice) {
             const url = chrome.runtime.getURL('src/options/index.html');
-            alert("即將使用 tabs.create 開啟: " + url);
             try {
                 await chrome.tabs.create({ url: url });
-                alert("✅ tabs.create 呼叫完成！");
                 window.close();
             } catch (err) {
-                alert("❌ tabs.create 失敗: " + err.message);
+                if (statusMsg) statusMsg.textContent = "❌ 開啟失敗: " + err.message;
                 throw err;
             }
             return;
@@ -41,19 +37,16 @@ btnSettings.addEventListener('click', async () => {
         // 電腦端採用標準 options page 方法
         chrome.runtime.openOptionsPage(async () => {
             if (chrome.runtime.lastError) {
-                alert("⚠️ openOptionsPage 失敗，嘗試 fallback: " + chrome.runtime.lastError.message);
                 await chrome.tabs.create({ url: chrome.runtime.getURL('src/options/index.html') });
             }
             window.close();
         });
     } catch (e) {
-        alert("💥 最外層攔截錯誤: " + e.message);
         console.warn('openOptionsPage failed, trying fallback tabs.create:', e);
         try {
             await chrome.tabs.create({ url: chrome.runtime.getURL('src/options/index.html') });
             window.close();
         } catch (err) {
-            alert("💥 Fallback 也完全失敗: " + err.message);
             console.error('Options fallback failed:', err);
             if (statusMsg) {
                 statusMsg.style.color = "red";
@@ -62,6 +55,7 @@ btnSettings.addEventListener('click', async () => {
         }
     }
 });
+
 
 // ── 開啟翻譯面板 ──
 btnPanel.addEventListener('click', async () => {
