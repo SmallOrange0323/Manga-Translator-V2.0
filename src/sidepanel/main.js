@@ -87,15 +87,20 @@ async function refreshGlossaryStatus() {
     if (isManualGlossary) return; // 手動模式下不自動更新
     try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
+        glossaryBar.style.display = 'flex'; // 永遠顯示狀態列，讓使用者能點擊手動選取
+        
         if (!tab || !tab.title) {
-            glossaryBar.style.display = 'none';
+            currentMangaKey = null;
+            glossaryNameEl.textContent = '未偵測到作品';
+            glossaryNameEl.title = '未偵測到作品';
+            glossaryCountEl.textContent = '0 詞';
             return;
         }
 
         const titleResult = extractMangaTitle(tab.title);
         if (titleResult) {
             currentMangaKey = titleResult.romanKey;
-            glossaryBar.style.display = 'flex';
             glossaryNameEl.textContent = titleResult.displayName;
             glossaryNameEl.title = titleResult.displayName;
 
@@ -109,7 +114,10 @@ async function refreshGlossaryStatus() {
                 }
             });
         } else {
-            glossaryBar.style.display = 'none';
+            currentMangaKey = null;
+            glossaryNameEl.textContent = '未偵測到作品';
+            glossaryNameEl.title = '未偵測到作品';
+            glossaryCountEl.textContent = '0 詞';
         }
     } catch (err) {
         console.warn('[Sidepanel] Failed to refresh glossary status:', err);
