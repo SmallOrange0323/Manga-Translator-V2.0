@@ -559,16 +559,6 @@ function showTranslatingCard(imgCount = 0) {
     resultsContainer.innerHTML = '';
     candidateImages = [];
 
-    let imageHtml = '';
-    if (currentTheme === 'priconne') {
-        const sprite = PRICONNE_LOADING_SPRITES[Math.floor(Math.random() * PRICONNE_LOADING_SPRITES.length)];
-        const url = chrome.runtime.getURL(`assets/loading_priconne/${sprite.file}`);
-        imageHtml = `<div style="width: 96px; height: 128px; background: url('${url}') no-repeat 0 0; background-size: 100% auto; image-rendering: pixelated; animation: priconne-sprite-anim ${(sprite.frames * 0.08).toFixed(2)}s steps(${sprite.frames}) infinite; margin: 0 auto;"></div>`;
-    } else {
-        const animUrl = chrome.runtime.getURL(`assets/running/${RUNNING_ANIMS[Math.floor(Math.random() * RUNNING_ANIMS.length)]}`);
-        imageHtml = `<img src="${animUrl}" style="width:90px; height:auto; border-radius:50%; box-shadow: 0 4px 15px rgba(0,0,0,0.1);" alt="翻譯中...">`;
-    }
-
     const card = document.createElement('div');
     card.id = 'mt-translating-card';
     card.style.cssText = `
@@ -579,13 +569,38 @@ function showTranslatingCard(imgCount = 0) {
         border: 1px solid rgba(0,0,0,0.06);
         animation: fadeIn 0.3s ease;
     `;
-    card.innerHTML = `
-        ${imageHtml}
-        <div style="font-size:13px; font-weight:600; color:#666; text-align:center;">
-            正在翻譯 ${imgCount} 張圖片...<br>
-            <span style="font-size:11px; color:#999;">結果將顯示於新分頁</span>
-        </div>
+
+    // 使用 createElement 建立圖片元素，避免 innerHTML 設定 style background url 時被 CSP 阻擋
+    let animEl;
+    if (currentTheme === 'priconne') {
+        const sprite = PRICONNE_LOADING_SPRITES[Math.floor(Math.random() * PRICONNE_LOADING_SPRITES.length)];
+        const url = chrome.runtime.getURL(`assets/loading_priconne/${sprite.file}`);
+        animEl = document.createElement('div');
+        animEl.style.cssText = `
+            width: 96px; height: 128px;
+            background: url('${url}') no-repeat 0 0;
+            background-size: 100% auto;
+            image-rendering: pixelated;
+            animation: priconne-sprite-anim ${(sprite.frames * 0.08).toFixed(2)}s steps(${sprite.frames}) infinite;
+            margin: 0 auto;
+        `;
+    } else {
+        const animUrl = chrome.runtime.getURL(`assets/running/${RUNNING_ANIMS[Math.floor(Math.random() * RUNNING_ANIMS.length)]}`);
+        animEl = document.createElement('img');
+        animEl.src = animUrl;
+        animEl.alt = "翻譯中...";
+        animEl.style.cssText = "width:90px; height:auto; border-radius:50%; box-shadow: 0 4px 15px rgba(0,0,0,0.1);";
+    }
+
+    const textEl = document.createElement('div');
+    textEl.style.cssText = "font-size:13px; font-weight:600; color:#666; text-align:center;";
+    textEl.innerHTML = `
+        正在翻譯 ${imgCount} 張圖片...<br>
+        <span style="font-size:11px; color:#999;">結果將顯示於新分頁</span>
     `;
+
+    card.appendChild(animEl);
+    card.appendChild(textEl);
     resultsContainer.appendChild(card);
 }
 
