@@ -480,8 +480,9 @@ function clearPreviewList() {
  * 對齊 V1.8.6 showLoadingCard 的視覺效果
  */
 function showTranslatingCard(imgCount = 0) {
-    // 移除舊的（避免重複）
-    hideTranslatingCard();
+    // 先清空容器（移除勾選清單）
+    resultsContainer.innerHTML = '';
+    candidateImages = [];
 
     const animUrl = chrome.runtime.getURL(
         `assets/running/${RUNNING_ANIMS[Math.floor(Math.random() * RUNNING_ANIMS.length)]}`
@@ -505,7 +506,6 @@ function showTranslatingCard(imgCount = 0) {
         </div>
     `;
     resultsContainer.appendChild(card);
-    candidateImages = [];
 }
 
 /** hideTranslatingCard — 移除進行中卡片 */
