@@ -100,18 +100,32 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('export-html-btn')?.addEventListener('click', saveAsHTML);
     document.getElementById('export-pdf-btn')?.addEventListener('click', () => window.print());
 
-    // 【新增】切換模式功能
+    // 【新增】切換模式功能 (三態：自動、行動、電腦)
     const toggleModeBtn = document.getElementById('toggle-mode-btn');
     if (toggleModeBtn) {
         const urlParams = new URLSearchParams(location.search);
         const hasTouchAndMobileUA = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
             (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-        const isCurrentlyMobile = urlParams.get('mobile') === '1' || 
-                                  (hasTouchAndMobileUA && urlParams.get('desktop') !== '1');
         
-        toggleModeBtn.innerHTML = isCurrentlyMobile 
-            ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>電腦版`
-            : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>行動版`;
+        let currentMode = 'auto';
+        if (urlParams.get('mobile') === '1') {
+            currentMode = 'mobile';
+        } else if (urlParams.get('desktop') === '1') {
+            currentMode = 'desktop';
+        }
+
+        // 根據不同模式渲染按鈕文字
+        if (currentMode === 'mobile') {
+            toggleModeBtn.innerHTML = `📱 強制行動版`;
+            toggleModeBtn.title = "目前強制使用行動端滑動佈局，點擊切換為電腦版模式";
+        } else if (currentMode === 'desktop') {
+            toggleModeBtn.innerHTML = `💻 強制電腦版`;
+            toggleModeBtn.title = "目前強制使用電腦端並排佈局，點擊切換為自動偵測模式";
+        } else {
+            const detectedMobile = hasTouchAndMobileUA || (window.innerWidth <= 768);
+            toggleModeBtn.innerHTML = `🤖 自動偵測 (${detectedMobile ? '行動' : '電腦'})`;
+            toggleModeBtn.title = "目前由系統根據螢幕尺寸與裝置自動判定，點擊切換為行動版模式";
+        }
         
         toggleModeBtn.addEventListener('click', () => {
             // 保存當前的翻譯資料和進度狀態到 sessionStorage
@@ -121,11 +135,17 @@ document.addEventListener('DOMContentLoaded', () => {
             sessionStorage.setItem('mt_progress_text', document.getElementById('progress-text').innerText);
 
             const params = new URLSearchParams(window.location.search);
-            if (isCurrentlyMobile) {
-                params.delete('mobile');
-                params.set('desktop', '1');
-            } else {
+            if (currentMode === 'auto') {
+                // 自動 -> 行動
                 params.set('mobile', '1');
+                params.delete('desktop');
+            } else if (currentMode === 'mobile') {
+                // 行動 -> 電腦
+                params.set('desktop', '1');
+                params.delete('mobile');
+            } else {
+                // 電腦 -> 自動
+                params.delete('mobile');
                 params.delete('desktop');
             }
             window.location.search = params.toString();
@@ -880,8 +900,16 @@ function initMobileReader() {
     const hasTouchAndMobileUA = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const urlParams = new URLSearchParams(location.search);
-    const isMobileMode = urlParams.get('mobile') === '1' || 
-                         (hasTouchAndMobileUA && urlParams.get('desktop') !== '1');
+    
+    let isMobileMode = false;
+    if (urlParams.get('mobile') === '1') {
+        isMobileMode = true;
+    } else if (urlParams.get('desktop') === '1') {
+        isMobileMode = false;
+    } else {
+        isMobileMode = hasTouchAndMobileUA || (window.innerWidth <= 768);
+    }
+
     if (!isMobileMode) {
         document.body.classList.remove('mt-mobile-mode');
         return;
