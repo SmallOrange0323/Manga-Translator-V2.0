@@ -497,13 +497,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               if (url && url.startsWith('data:image')) {
                   base64 = url.split(',')[1];
               } else if (url) {
+                  const maxDim = await state.get('imageMaxDimension', 1024);
                   const res = await fetch(url);
                   if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-                  const buf = await res.arrayBuffer();
-                  const bytes = new Uint8Array(buf);
-                  let binary = '';
-                  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-                  base64 = btoa(binary);
+                  const blob = await res.blob();
+                  base64 = await resizeImageBlobToBase64(blob, maxDim);
               }
               if (!base64) throw new Error('無法取得圖片 Base64');
               const modelName = await state.get('modelName', 'gemini-1.5-flash');
