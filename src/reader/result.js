@@ -81,7 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 savedData.forEach((item, idx) => {
                     const card = buildCard(item, idx);
                     container.appendChild(card);
-                    // 行動版綁定會由最後的 initMobileReader 統一處理
+                    if (window._bindMobileCard) window._bindMobileCard(card);
                 });
                 
                 if (sessionStorage.getItem('mt_translation_complete') === '1') {
