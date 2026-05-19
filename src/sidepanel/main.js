@@ -45,6 +45,7 @@ function setThemeLoading() {
             background: url('${url}') no-repeat 0 0;
             background-size: 100% auto;
             image-rendering: pixelated;
+            --frames: ${sprite.frames};
             animation: priconne-sprite-anim ${(sprite.frames * 0.08).toFixed(2)}s steps(${sprite.frames}) infinite;
         `;
         loadingImg.replaceWith(spriteDiv);
@@ -581,6 +582,7 @@ function showTranslatingCard(imgCount = 0) {
             background: url('${url}') no-repeat 0 0;
             background-size: 100% auto;
             image-rendering: pixelated;
+            --frames: ${sprite.frames};
             animation: priconne-sprite-anim ${(sprite.frames * 0.08).toFixed(2)}s steps(${sprite.frames}) infinite;
             margin: 0 auto;
         `;

@@ -433,5 +433,5 @@ input:checked + .mt-slider:before { transform: translateX(18px); }
 /* 公連 Loading Sprite 分格動畫 */
 @keyframes priconne-sprite-anim {
     from { background-position: 0 0; }
-    to   { background-position: 0 -100%; }
+    to   { background-position: 0 calc(-128px * var(--frames)); }
 }
