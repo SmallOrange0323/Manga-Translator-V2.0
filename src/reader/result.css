@@ -245,13 +245,14 @@ body {
 
 .card-text-wrapper {
     flex: 1;
-    padding: 20px 24px 20px;
+    padding: 20px 24px;
     display: flex;
     flex-direction: column;
     justify-content: center;
     gap: 14px;
     overflow-y: auto;
     position: relative;
+    background: var(--theme-bg-secondary); /* 主題色淡底，讓對話框浮出 */
 }
 
 .text-group {
@@ -274,11 +275,11 @@ body {
     gap: 12px;
     padding: 16px 20px;
     background: #ffffff;
-    border: 3px solid var(--theme-bg-secondary);
+    border: 2px solid var(--theme-accent-soft);
     border-left: 8px solid var(--theme-accent);
     border-radius: 16px;
-    box-shadow: 0 4px 12px rgba(106, 90, 211, 0.05);
-    margin-bottom: 8px; /* 緊湊對話框間距 */
+    box-shadow: 0 4px 12px rgba(106, 90, 211, 0.08);
+    margin-bottom: 8px;
     position: relative;
 }
 
