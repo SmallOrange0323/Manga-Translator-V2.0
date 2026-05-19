@@ -282,17 +282,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const mobileParam = mobile ? '&mobile=1' : '';
       // 儲存 payload，等 result.html 的 resultPageReady 訊號再開始翻譯
       chrome.storage.local.set({ mt_batch_payload: { tabId, images } }, () => {
-          chrome.tabs.create({ url: chrome.runtime.getURL('src/reader/result.html') + '?tabId=' + tabId + mobileParam }, (tab) => {
-              state.get('pendingBatchJobs', {}).then(jobs => {
-                  // 同步儲存 navLinks，供 resultPageReady 時傳給 processMangaBatchPCMode
-                  jobs[tab.id] = { sourceTabId: tabId, images, navLinks: navLinks || null };
-                  state.set('pendingBatchJobs', jobs);
-                  setTimeout(() => {
-                      state.get('pendingBatchJobs', {}).then(jobs2 => {
-                          delete jobs2[tab.id];
-                          state.set('pendingBatchJobs', jobs2);
-                      });
-                  }, 60000);
+          chrome.tabs.get(tabId, (sourceTab) => {
+              const windowId = sourceTab ? sourceTab.windowId : undefined;
+              chrome.tabs.create({ url: chrome.runtime.getURL('src/reader/result.html') + '?tabId=' + tabId + mobileParam, windowId: windowId }, (tab) => {
+                  state.get('pendingBatchJobs', {}).then(jobs => {
+                      // 同步儲存 navLinks，供 resultPageReady 時傳給 processMangaBatchPCMode
+                      jobs[tab.id] = { sourceTabId: tabId, images, navLinks: navLinks || null };
+                      state.set('pendingBatchJobs', jobs);
+                      setTimeout(() => {
+                          state.get('pendingBatchJobs', {}).then(jobs2 => {
+                              delete jobs2[tab.id];
+                              state.set('pendingBatchJobs', jobs2);
+                          });
+                      }, 60000);
+                  });
               });
           });
       });
@@ -303,8 +306,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // 行動端專用：開啟行動版翻譯分頁
   if (message.action === 'OPEN_MOBILE_PANEL') {
       const sourceTabId = sender.tab.id;
+      const windowId = sender.tab.windowId;
       const mobileUrl = chrome.runtime.getURL('src/mobile/index.html') + '?sourceTabId=' + sourceTabId;
-      chrome.tabs.create({ url: mobileUrl });
+      chrome.tabs.create({ url: mobileUrl, windowId: windowId });
       sendResponse({ status: 'ok' });
       return false;
   }
@@ -827,22 +831,26 @@ async function handleProcessScreenshot(rect, tabId) {
  */
 function openNewResultPage(sourceTabId, images, navLinks, mangaKey) {
     const mobileParam = '&mobile=0';
-    chrome.tabs.create({
-        url: chrome.runtime.getURL('src/reader/result.html') + `?tabId=${sourceTabId}${mobileParam}`
-    }, (resultTab) => {
-        if (chrome.runtime.lastError || !resultTab) {
-            log.warn('Background', 'openNewResultPage: 無法建立結果頁');
-            return;
-        }
-        state.get('pendingBatchJobs', {}).then(jobs => {
-            jobs[resultTab.id] = { sourceTabId, images, navLinks: navLinks || null, mangaKey: mangaKey || null };
-            state.set('pendingBatchJobs', jobs);
-            setTimeout(() => {
-                state.get('pendingBatchJobs', {}).then(jobs2 => {
-                    delete jobs2[resultTab.id];
-                    state.set('pendingBatchJobs', jobs2);
-                });
-            }, 60000);
+    chrome.tabs.get(sourceTabId, (sourceTab) => {
+        const windowId = sourceTab ? sourceTab.windowId : undefined;
+        chrome.tabs.create({
+            url: chrome.runtime.getURL('src/reader/result.html') + `?tabId=${sourceTabId}${mobileParam}`,
+            windowId: windowId
+        }, (resultTab) => {
+            if (chrome.runtime.lastError || !resultTab) {
+                log.warn('Background', 'openNewResultPage: 無法建立結果頁');
+                return;
+            }
+            state.get('pendingBatchJobs', {}).then(jobs => {
+                jobs[resultTab.id] = { sourceTabId, images, navLinks: navLinks || null, mangaKey: mangaKey || null };
+                state.set('pendingBatchJobs', jobs);
+                setTimeout(() => {
+                    state.get('pendingBatchJobs', {}).then(jobs2 => {
+                        delete jobs2[resultTab.id];
+                        state.set('pendingBatchJobs', jobs2);
+                    });
+                }, 60000);
+            });
         });
     });
 }

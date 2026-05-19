@@ -233,8 +233,8 @@ themeToggle.onclick = async () => {
     await state.set('theme', nextBodyTheme);
     setRandomBackground();   // 切換立繪
     setThemeLoading();       // 切換 Loading 動畫
-    // 同步廣播給結果頁
-    chrome.storage.local.set({ mt_theme: nextBodyTheme });
+    // 同步廣播給結果頁 (需去掉 'theme-' 前綴，否則 result.js 會套用 'theme-theme-xxx')
+    chrome.storage.local.set({ mt_theme: currentTheme });
     console.log('[Sidepanel] Theme switched to:', nextBodyTheme);
 };
 
