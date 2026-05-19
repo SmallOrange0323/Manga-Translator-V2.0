@@ -14,15 +14,17 @@ const lastNovelUrlByTab = {};
 
 log.info('Background', '漫譯 V2 背景服務程式已啟動');
 
+// 檢查是否處於無痕模式背景實例中 (用於 split 模式分流)
+const isIncognitoProcess = chrome.extension ? chrome.extension.inIncognitoContext : false;
+
 // 當 Service Worker 啟動或重啟時，初次化狀態
 state.init().then(async () => {
-    log.info('Background', '狀態載入完成，檢查待處理任務...');
+    log.info('Background', `狀態載入完成 (無痕模式: ${isIncognitoProcess})，檢查待處理任務...`);
     await state.set('isStopping', false); // 重置停止狀態
 
-    
     // 範例：檢查是否有遺留的小說翻譯任務
     const queue = await state.get('novelQueue', []);
-    if (queue.length > 0) {
+    if (queue.length > 0 && !isIncognitoProcess) {
         log.warn('Background', `偵測到 ${queue.length} 個小說待處理任務，準備恢復...`);
         // 這裡未來會啟動 processNovelQueue()
     }
@@ -33,6 +35,10 @@ let _localNovelProcessingLock = false;
 
 // 真正的翻譯處理循環
 async function processNovelQueue() {
+    if (isIncognitoProcess) {
+        log.info('Background', '[NovelQueue] 無痕模式背景不處理全域小說佇列，避免競爭');
+        return;
+    }
     if (_localNovelProcessingLock) return;
     _localNovelProcessingLock = true;
 

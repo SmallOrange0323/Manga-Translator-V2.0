@@ -3,6 +3,7 @@
   "name": "Manga Translator V2.0",
   "version": "2.2.1",
   "description": "Modernized Manga Translator with Storage-First Architecture",
+  "incognito": "split",
   "permissions": [
     "storage",
     "sidePanel",
