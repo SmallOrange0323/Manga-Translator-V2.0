@@ -535,6 +535,7 @@ document.getElementById('mt-batch-trans-btn').onclick = () => {
             action: 'START_MANGA_BATCH_PC_MODE',
             payload: {
                 tabId: tabId,
+                windowId: tabs[0]?.windowId,
                 images: selectedUrls,
                 navLinks: candidateNavLinks, // 傳入導航連結，供結果頁顯示上下一話按鈕
                 mangaKey: currentMangaKey    // 傳入選擇的詞庫 key
