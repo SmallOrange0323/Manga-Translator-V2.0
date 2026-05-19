@@ -63,6 +63,39 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // 恢復重載前保存的翻譯資料 (用於行動版/電腦版切換)
+    const savedDataStr = sessionStorage.getItem('mt_translated_data');
+    if (savedDataStr) {
+        try {
+            const savedData = JSON.parse(savedDataStr);
+            if (savedData && savedData.length > 0) {
+                translatedData = savedData;
+                
+                if (sessionStorage.getItem('mt_translation_complete') === '1') {
+                    document.getElementById('loading-overlay').classList.add('hidden');
+                } else {
+                    const progText = sessionStorage.getItem('mt_progress_text');
+                    if (progText) document.getElementById('progress-text').innerText = progText;
+                }
+                
+                savedData.forEach((item, idx) => {
+                    const card = buildCard(item, idx);
+                    container.appendChild(card);
+                    // 行動版綁定會由最後的 initMobileReader 統一處理
+                });
+                
+                if (sessionStorage.getItem('mt_translation_complete') === '1') {
+                    updateRetryAllBtn();
+                }
+            }
+        } catch (e) {
+            console.warn("Failed to restore translated data:", e);
+        }
+        sessionStorage.removeItem('mt_translated_data');
+        sessionStorage.removeItem('mt_translation_complete');
+        sessionStorage.removeItem('mt_progress_text');
+    }
+
     // 掛載匯出功能
     document.getElementById('export-html-btn')?.addEventListener('click', saveAsHTML);
     document.getElementById('export-pdf-btn')?.addEventListener('click', () => window.print());
@@ -81,6 +114,12 @@ document.addEventListener('DOMContentLoaded', () => {
             : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>行動版`;
         
         toggleModeBtn.addEventListener('click', () => {
+            // 保存當前的翻譯資料和進度狀態到 sessionStorage
+            sessionStorage.setItem('mt_translated_data', JSON.stringify(translatedData));
+            const overlayHidden = document.getElementById('loading-overlay').classList.contains('hidden');
+            sessionStorage.setItem('mt_translation_complete', overlayHidden ? '1' : '0');
+            sessionStorage.setItem('mt_progress_text', document.getElementById('progress-text').innerText);
+
             const params = new URLSearchParams(window.location.search);
             if (isCurrentlyMobile) {
                 params.delete('mobile');
