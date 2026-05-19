@@ -882,7 +882,11 @@ function initMobileReader() {
     const urlParams = new URLSearchParams(location.search);
     const isMobileMode = urlParams.get('mobile') === '1' || 
                          (hasTouchAndMobileUA && urlParams.get('desktop') !== '1');
-    if (!isMobileMode) return;
+    if (!isMobileMode) {
+        document.body.classList.remove('mt-mobile-mode');
+        return;
+    }
+    document.body.classList.add('mt-mobile-mode');
     if (mobileReaderInitialized) return;
     mobileReaderInitialized = true;
 

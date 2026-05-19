@@ -1117,15 +1117,11 @@ body.theme-priconne .skeleton-anim {
 }
 
 /* ─── Mobile Manga Reader Mode ─── */
-@media (max-width: 768px) {
-
-    /* ── body 改為 column flex，讓 container 自動撐滿剩餘高度 ── */
-    body {
-        display: flex;
-        flex-direction: column;
-        height: 100vh;
-        overflow: hidden;
-    }
+body.mt-mobile-mode {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
 
     /* ── Header：壓縮為超薄工具列，不設固定高度 ── */
     .result-header {
