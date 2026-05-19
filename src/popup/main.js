@@ -13,21 +13,6 @@ const debugSection = document.getElementById('debug-section');
 const debugConsole = document.getElementById('debug-log-console');
 const btnToggleDebug = document.getElementById('btn-toggle-debug');
 
-// ── 全域觸控追蹤器（最底層診斷，任何點擊都會觸發）──
-// 直接在 statusMsg 顯示，不依賴 console
-document.addEventListener('pointerdown', (e) => {
-    const id = e.target.id || e.target.tagName + '.' + e.target.className;
-    if (statusMsg) {
-        statusMsg.style.color = 'blue';
-        statusMsg.textContent = '點到: ' + id;
-    }
-    if (debugConsole) {
-        const el = document.createElement('div');
-        el.textContent = '[PTR] target=' + id;
-        debugConsole.appendChild(el);
-    }
-});
-
 
 
 function logToDebugConsole(level, ...args) {
