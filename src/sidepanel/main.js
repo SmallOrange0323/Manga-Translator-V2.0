@@ -196,6 +196,7 @@ chrome.runtime.onMessage.addListener((request) => {
         if (stopBtn) stopBtn.style.display = 'none';
         if (startBtn) startBtn.style.display = 'flex';
         if (pauseBtn) { pauseBtn.style.display = 'none'; pauseBtn.textContent = '⏸️ 暫停'; pauseBtn.classList.remove('is-paused'); }
+        hideTranslatingCard(); // 翻譯完成，移除跑步動畫卡片
     }
     // P1 移植：配額即時更新（對齊 v1.8.7 updateTokenDisplay）
     if (request.action === 'updateTokenDisplay') {
@@ -330,6 +331,7 @@ document.getElementById('mt-stop-btn').onclick = () => {
             pauseBtn.textContent = '⏸️ 暫停';
             pauseBtn.classList.remove('is-paused');
         }
+        hideTranslatingCard(); // 停止時也移除跑步卡片
     });
 };
 
@@ -459,7 +461,10 @@ document.getElementById('mt-batch-trans-btn').onclick = () => {
         document.getElementById('mt-stop-btn').style.display = 'flex';
         document.getElementById('mt-start-btn').style.display = 'none';
         
-        clearPreviewList();
+        // 隱藏選圖清單，改顯示跑步動畫卡片
+        document.querySelector('.mt-batch-controls').style.display = 'none';
+        document.querySelector('.mt-main-actions').style.display = 'flex';
+        showTranslatingCard(selectedUrls.length);
     });
 };
 
@@ -468,6 +473,45 @@ function clearPreviewList() {
     document.querySelector('.mt-batch-controls').style.display = 'none';
     document.querySelector('.mt-main-actions').style.display = 'flex';
     candidateImages = [];
+}
+
+/**
+ * showTranslatingCard — 在 mt-results-container 顯示帶跑步動畫的「翻譯進行中」卡片
+ * 對齊 V1.8.6 showLoadingCard 的視覺效果
+ */
+function showTranslatingCard(imgCount = 0) {
+    // 移除舊的（避免重複）
+    hideTranslatingCard();
+
+    const animUrl = chrome.runtime.getURL(
+        `assets/running/${RUNNING_ANIMS[Math.floor(Math.random() * RUNNING_ANIMS.length)]}`
+    );
+
+    const card = document.createElement('div');
+    card.id = 'mt-translating-card';
+    card.style.cssText = `
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        padding: 28px 16px; gap: 12px;
+        background: rgba(255,255,255,0.6);
+        border-radius: 12px; margin: 12px;
+        border: 1px solid rgba(0,0,0,0.06);
+        animation: fadeIn 0.3s ease;
+    `;
+    card.innerHTML = `
+        <img src="${animUrl}" style="width:90px; height:auto; border-radius:50%; box-shadow: 0 4px 15px rgba(0,0,0,0.1);" alt="翻譯中...">
+        <div style="font-size:13px; font-weight:600; color:#666; text-align:center;">
+            正在翻譯 ${imgCount} 張圖片...<br>
+            <span style="font-size:11px; color:#999;">結果將顯示於新分頁</span>
+        </div>
+    `;
+    resultsContainer.appendChild(card);
+    candidateImages = [];
+}
+
+/** hideTranslatingCard — 移除進行中卡片 */
+function hideTranslatingCard() {
+    const old = document.getElementById('mt-translating-card');
+    if (old) old.remove();
 }
 
 // ── 【缺口A移植】拖曳排序所需狀態變數 ──
