@@ -71,67 +71,19 @@ window.addEventListener('unhandledrejection', (event) => {
 });
 
 // ── 開啟設定頁 ──
-btnSettings.addEventListener('click', async () => {
+// 注意：Edge Android 上帶 callback 的 openOptionsPage() 會靜默失敗
+// 正確做法是不帶 callback 直接呼叫，讓瀏覽器自行處理
+btnSettings.addEventListener('click', () => {
+    console.log("⚙️ 點擊設定按鈕...");
     try {
-        console.log("⚙️ 點擊設定按鈕...");
-        if (statusMsg) {
-            statusMsg.style.color = "inherit";
-            statusMsg.textContent = "正在開啟設定頁面...";
-        }
-        
-        // 偵測裝置環境與 chrome API
-        const sidePanelSupported = (chrome.sidePanel && typeof chrome.sidePanel.open === 'function');
-        const openOptionsPageSupported = (chrome.runtime && typeof chrome.runtime.openOptionsPage === 'function');
-        const tabsSupported = (chrome.tabs && typeof chrome.tabs.create === 'function');
-        
-        console.log(`環境偵測: sidePanel=${sidePanelSupported}, openOptionsPage=${openOptionsPageSupported}, tabs=${tabsSupported}`);
-        
-        // 行動端（不支援 sidePanel）的 chrome.runtime.openOptionsPage() 經常失效，故直接使用 tabs.create
-        const isMobileDevice = !sidePanelSupported;
-        console.log(`是否判斷為行動端: ${isMobileDevice}`);
-        
-        if (isMobileDevice) {
-            const url = chrome.runtime.getURL('src/options/index.html');
-            console.log(`行動端準備使用 tabs.create 開啟: ${url}`);
-            
-            if (!tabsSupported) {
-                throw new Error("此環境不支援 chrome.tabs API");
-            }
-            
-            try {
-                const tab = await chrome.tabs.create({ url: url });
-                console.log(`✅ tabs.create 成功！回傳 Tab ID: ${tab ? tab.id : 'undefined'}`);
-                window.close();
-            } catch (err) {
-                console.error(`❌ tabs.create 失敗: ${err.message}`);
-                throw err;
-            }
-            return;
-        }
-
-        // 電腦端採用標準 options page 方法
-        console.log("電腦端採用標準 openOptionsPage");
-        chrome.runtime.openOptionsPage(async () => {
-            if (chrome.runtime.lastError) {
-                console.warn(`openOptionsPage 錯誤, 嘗試 fallback: ${chrome.runtime.lastError.message}`);
-                await chrome.tabs.create({ url: chrome.runtime.getURL('src/options/index.html') });
-            } else {
-                console.log("openOptionsPage 呼叫成功");
-            }
-            window.close();
-        });
+        chrome.runtime.openOptionsPage();
+        console.log("openOptionsPage() 已呼叫（無 callback）");
+        window.close();
     } catch (e) {
-        console.warn('最外層攔截 Catch, 嘗試最終 Fallback tabs.create:', e.message);
-        try {
-            const fallbackUrl = chrome.runtime.getURL('src/options/index.html');
-            await chrome.tabs.create({ url: fallbackUrl });
-            window.close();
-        } catch (err) {
-            console.error('Options fallback 最終完全失敗:', err.message);
-            if (statusMsg) {
-                statusMsg.style.color = "red";
-                statusMsg.textContent = "開啟設定失敗，請確認權限";
-            }
+        console.error("openOptionsPage 呼叫失敗:", e.message);
+        if (statusMsg) {
+            statusMsg.style.color = "red";
+            statusMsg.textContent = "開啟設定失敗";
         }
     }
 });
