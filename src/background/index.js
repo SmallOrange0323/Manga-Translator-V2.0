@@ -1339,6 +1339,10 @@ async function sendMessageWithRetry(tabId, message, maxRetries = 8, interval = 1
 async function autoStartBatchWithRetry(tabId, resultTabId, mangaKey) {
     log.info('Background', `[AutoBatch] 嘗試開始接力翻譯 - TabID: ${tabId}`);
     try {
+        // 先確保 content script 已注入（Edge Android 背景分頁跳轉後可能未自動注入）
+        log.info('Background', `[AutoBatch] 確認 content script 注入狀態...`);
+        await ensureContentScriptInjected(tabId);
+
         const crawlResult = await sendMessageWithRetry(tabId, { action: 'crawlImages' });
         if (!crawlResult || !crawlResult.images || crawlResult.images.length === 0) {
             log.warn('Background', '[AutoBatch] 接力翻譯：抓圖結果為空，中止');

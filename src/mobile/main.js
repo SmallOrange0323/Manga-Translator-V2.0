@@ -3,6 +3,7 @@ import { log } from '../utils/logger.js';
 // 全域狀態
 let sourceTabId = null;
 let foundImages = [];
+let foundNavLinks = null;  // 儲存上/下話連結
 let selectedIndices = new Set();
 
 // UI 元素
@@ -55,6 +56,7 @@ async function scanImages() {
         
         if (response && response.images) {
             foundImages = response.images;
+            foundNavLinks = response.navLinks || null;  // 同步儲存上/下話連結
             renderImageGrid();
             updateStatus(`掃描完成，找到 ${foundImages.length} 張圖片`);
         } else {
@@ -154,9 +156,10 @@ async function startTranslation() {
     chrome.runtime.sendMessage({
         action: 'START_MANGA_BATCH_PC_MODE',
         payload: {
-            tabId: sourceTabId,      // 漫畫來源分頁 ID
+            tabId: sourceTabId,
             images: selectedImages,
-            mobile: true             // 告知結果頁使用行動版閱讀模式
+            navLinks: foundNavLinks,  // 傳入上/下話連結，讓結果頁顯示導航按鈕
+            mobile: true
         }
     }, (response) => {
         if (chrome.runtime.lastError) {
