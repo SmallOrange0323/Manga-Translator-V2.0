@@ -98,6 +98,11 @@ async function refreshGlossaryStatus() {
             return;
         }
 
+        // 如果目前分頁是結果頁或是擴充功能的頁面，就維持原本的狀態，不要重新偵測
+        if (tab.url && tab.url.startsWith('chrome-extension://')) {
+            return;
+        }
+
         const titleResult = extractMangaTitle(tab.title);
         if (titleResult) {
             currentMangaKey = titleResult.romanKey;
@@ -554,9 +559,15 @@ function showTranslatingCard(imgCount = 0) {
     resultsContainer.innerHTML = '';
     candidateImages = [];
 
-    const animUrl = chrome.runtime.getURL(
-        `assets/running/${RUNNING_ANIMS[Math.floor(Math.random() * RUNNING_ANIMS.length)]}`
-    );
+    let imageHtml = '';
+    if (currentTheme === 'priconne') {
+        const sprite = PRICONNE_LOADING_SPRITES[Math.floor(Math.random() * PRICONNE_LOADING_SPRITES.length)];
+        const url = chrome.runtime.getURL(`assets/loading_priconne/${sprite.file}`);
+        imageHtml = `<div style="width: 96px; height: 128px; background: url('${url}') no-repeat 0 0; background-size: 100% auto; image-rendering: pixelated; animation: priconne-sprite-anim ${(sprite.frames * 0.08).toFixed(2)}s steps(${sprite.frames}) infinite; margin: 0 auto;"></div>`;
+    } else {
+        const animUrl = chrome.runtime.getURL(`assets/running/${RUNNING_ANIMS[Math.floor(Math.random() * RUNNING_ANIMS.length)]}`);
+        imageHtml = `<img src="${animUrl}" style="width:90px; height:auto; border-radius:50%; box-shadow: 0 4px 15px rgba(0,0,0,0.1);" alt="翻譯中...">`;
+    }
 
     const card = document.createElement('div');
     card.id = 'mt-translating-card';
@@ -569,7 +580,7 @@ function showTranslatingCard(imgCount = 0) {
         animation: fadeIn 0.3s ease;
     `;
     card.innerHTML = `
-        <img src="${animUrl}" style="width:90px; height:auto; border-radius:50%; box-shadow: 0 4px 15px rgba(0,0,0,0.1);" alt="翻譯中...">
+        ${imageHtml}
         <div style="font-size:13px; font-weight:600; color:#666; text-align:center;">
             正在翻譯 ${imgCount} 張圖片...<br>
             <span style="font-size:11px; color:#999;">結果將顯示於新分頁</span>
