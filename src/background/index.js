@@ -1398,11 +1398,16 @@ async function handleAddToQueue(task) {
     log.info('Background', '任務已原子化新增至儲存佇列');
 }
 
-// 注意：擴充套件的點擊行為（開啟側邊欄 / 行動版）已改由 src/popup/index.html 統一處理。
-// manifest.json 的 action.default_popup 確保在所有平台（電腦 / 行動端）點擊圖示時都會顯示 Popup。
-// Popup 內部的按鈕邏輯：
-//   - "開啟翻譯面板"  → chrome.sidePanel.open() （電腦版有效，行動端降級顯示提示）
-//   - "開啟設定"     → chrome.runtime.openOptionsPage() （兩個平台都有效）
+// 依據裝置設定 Action 行為 (點擊擴充功能圖示)
+const isMobileEnv = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+if (isMobileEnv) {
+    // 行動端：使用 popup 作為控制面板 (因為行動端不支援 SidePanel)
+    chrome.action.setPopup({ popup: 'src/popup/index.html' });
+} else {
+    // 電腦端：點擊直接開啟側邊欄
+    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+        .catch(err => log.error('Background', `設定側邊欄行為失敗: ${err.message}`));
+}
 
 // 右鍵選單：提供額外的「設定」快速入口
 chrome.runtime.onInstalled.addListener(() => {
