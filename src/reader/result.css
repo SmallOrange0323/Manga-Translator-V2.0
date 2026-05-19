@@ -1340,14 +1340,13 @@ body.mt-mobile-mode {
 
     #mt-mobile-fab {
         position: fixed;
-        bottom: 24px;
-        left: 50%;
-        transform: translateX(-50%);
+        top: 152px;          /* 工具列按鈕下方，不遮底部導航 */
+        left: 8px;
         background: rgba(20, 20, 20, 0.82);
         color: #fff;
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 600;
-        padding: 12px 32px;
+        padding: 8px 16px;
         border-radius: 50px;
         border: none;
         cursor: pointer;
@@ -1358,7 +1357,7 @@ body.mt-mobile-mode {
         transition: opacity 0.2s, transform 0.2s;
     }
     #mt-mobile-fab.hidden { opacity: 0; pointer-events: none; }
-    #mt-mobile-fab:active { transform: translateX(-50%) scale(0.96); }
+    #mt-mobile-fab:active { transform: scale(0.96); }
 
     /* ── 進度點 (JS 動態注入) ── */
     .mobile-progress-bar {

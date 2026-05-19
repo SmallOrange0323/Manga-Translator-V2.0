@@ -154,9 +154,11 @@ btnPanel.addEventListener('click', async () => {
     }
 });
 
+
 // 初始檢查：行動端隱藏「開啟翻譯面板」按鈕（對行動端無意義）
-// 行動端改由擴充功能直接跳轉，不需要這個入口
-const isMobileEnv = !(chrome.sidePanel && typeof chrome.sidePanel.open === 'function');
+// 注意：Edge Android 上 chrome.sidePanel API 存在但側邊欄 UI 無法使用，
+//       改用 userAgent 偵測才準確
+const isMobileEnv = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
 if (isMobileEnv) {
     // 行動端：完全隱藏面板按鈕
     if (btnPanel) btnPanel.style.display = 'none';
