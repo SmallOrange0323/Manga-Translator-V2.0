@@ -148,11 +148,22 @@ chrome.runtime.onMessage.addListener((request) => {
 
 async function updateQuotaUI() {
     const count = await state.get('usageCount', 0);
-    const total = await state.get('usageTotal', 1000); // 預設 1000
-    const percent = Math.min(100, (count / total) * 100);
-    
-    document.getElementById('mt-quota-count').textContent = `${count} / ${total}`;
-    document.getElementById('mt-quota-bar-fill').style.width = `${percent}%`;
+
+    // 【缺口I移植】依 API Key 數量動態計算每日上限（每 Key 500 次，與 V1 一致）
+    const apiKeyRaw = await new Promise(resolve =>
+        chrome.storage.sync.get(['apiKey'], d => resolve(d.apiKey || ''))
+    );
+    const keyCount = Math.max(
+        (apiKeyRaw.split('\n').map(k => k.trim()).filter(k => k)).length,
+        1
+    );
+    const total = keyCount * 500;
+    const percent = Math.min(100, (count / total) * 100).toFixed(1);
+
+    const countEl = document.getElementById('mt-quota-count');
+    const fillEl = document.getElementById('mt-quota-bar-fill');
+    if (countEl) countEl.textContent = `${count} / ${total} (${percent}%)`;
+    if (fillEl) fillEl.style.width = `${percent}%`;
 }
 
 function updateNovelStatus(progress) {
@@ -241,12 +252,20 @@ document.getElementById('mt-start-btn').onclick = () => {
 };
 
 document.getElementById('mt-stop-btn').onclick = () => {
-    chrome.runtime.sendMessage({ action: 'STOP_TRANSLATION' }, (res) => {
-        // 同時清除暫停狀態，避免下次翻譯發動前還在暫停狀態
-        chrome.runtime.sendMessage({ action: 'toggleBatchPause' }).catch(() => {});
+    chrome.runtime.sendMessage({ action: 'STOP_TRANSLATION' }, () => {
+        // 【問題4修正】直接強制清除暫停狀態，而非使用 toggleBatchPause（切換操作）
+        // 避免在非暫停狀態下按停止後，反而將 isBatchPaused 設為 true，
+        // 導致下一次翻譯任務一開始就卡在暫停狀態，需使用者手動按「繼續」
+        state.set('isBatchPaused', false);
         document.getElementById('mt-stop-btn').style.display = 'none';
         document.getElementById('mt-pause-btn')?.style.setProperty('display', 'none');
         document.getElementById('mt-start-btn').style.display = 'flex';
+        // 同步重置暫停按鈕的視覺狀態
+        const pauseBtn = document.getElementById('mt-pause-btn');
+        if (pauseBtn) {
+            pauseBtn.textContent = '⏸️ 暫停';
+            pauseBtn.classList.remove('is-paused');
+        }
     });
 };
 
@@ -387,6 +406,11 @@ function clearPreviewList() {
     candidateImages = [];
 }
 
+// ── 【缺口A移植】拖曳排序所需狀態變數 ──
+let _draggedItem = null;
+let _draggedIndex = -1;
+let _lastDragTarget = null;
+
 function renderPreviewList() {
     resultsContainer.innerHTML = '';
     document.querySelector('.mt-main-actions').style.display = 'none';
@@ -399,41 +423,126 @@ function renderPreviewList() {
         const src = imgObj.src || imgObj;
         const item = document.createElement('div');
         item.className = 'mt-preview-item';
-        // 為了簡單化，先不實作完整的 drag and drop 事件
-        
+        item.setAttribute('draggable', true);
+        item.dataset.index = index;
+
+        // 拖曳把手
+        const handle = document.createElement('div');
+        handle.className = 'mt-preview-drag-handle';
+        handle.innerHTML = '☰';
+        handle.style.cssText = 'cursor: grab; padding: 0 6px; color: #aaa; font-size: 14px; user-select: none; flex-shrink: 0;';
+
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.className = 'mt-preview-checkbox';
         checkbox.checked = true;
         checkbox.dataset.index = index;
-        
+
         const previewImg = document.createElement('img');
         previewImg.className = 'mt-preview-img';
         previewImg.src = src;
+        previewImg.title = '點擊放大';
+        previewImg.style.cursor = 'zoom-in';
 
         const info = document.createElement('div');
         info.className = 'mt-preview-info';
-        info.textContent = `圖片 ${index + 1}`;
-        info.style.fontSize = "11px";
-        info.style.paddingLeft = "8px";
+        info.style.cssText = 'font-size: 11px; padding-left: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;';
+        // 【缺口I改善】顯示真實檔名（從 URL 解析）
+        let filename = `圖片 ${index + 1}`;
+        try {
+            const urlObj = new URL(src);
+            const pathName = urlObj.pathname.split('/').pop();
+            if (pathName && pathName.length > 1) filename = decodeURIComponent(pathName);
+        } catch (e) {}
+        info.textContent = filename;
+        info.title = filename;
 
+        item.appendChild(handle);
         item.appendChild(checkbox);
         item.appendChild(previewImg);
         item.appendChild(info);
 
         item.onclick = (e) => {
-            if (e.target !== checkbox && e.target !== previewImg) {
+            if (e.target !== checkbox && e.target !== previewImg && !e.target.classList.contains('mt-preview-drag-handle')) {
                 checkbox.checked = !checkbox.checked;
                 updateBatchCount();
             }
         };
         checkbox.onchange = updateBatchCount;
 
+        // 【缺口H移植】縮圖點擊 → 燈箱
+        previewImg.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showLightbox(src);
+        });
+
+        // 【缺口A移植】拖曳事件
+        item.addEventListener('dragstart', (e) => {
+            _draggedItem = item;
+            _draggedIndex = index;
+            _lastDragTarget = null;
+            e.dataTransfer.effectAllowed = 'move';
+            setTimeout(() => item.classList.add('dragging'), 0);
+        });
+        item.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            const target = e.target.closest('.mt-preview-item');
+            if (target === _lastDragTarget) return;
+            if (_lastDragTarget) _lastDragTarget.classList.remove('drag-over-top', 'drag-over-bottom');
+            _lastDragTarget = target;
+            if (target && target !== _draggedItem) {
+                const rect = target.getBoundingClientRect();
+                target.classList.add(e.clientY < rect.top + rect.height / 2 ? 'drag-over-top' : 'drag-over-bottom');
+            }
+        });
+        item.addEventListener('drop', (e) => {
+            e.stopPropagation();
+            const target = e.target.closest('.mt-preview-item');
+            if (!target || target === _draggedItem) return;
+            const targetIndex = parseInt(target.dataset.index);
+            const rect = target.getBoundingClientRect();
+            const insertBefore = e.clientY < rect.top + rect.height / 2;
+            const movedItem = candidateImages.splice(_draggedIndex, 1)[0];
+            let newIndex = targetIndex;
+            if (_draggedIndex < targetIndex) newIndex = targetIndex - 1;
+            if (!insertBefore) newIndex += 1;
+            candidateImages.splice(newIndex, 0, movedItem);
+            renderPreviewList();
+        });
+        item.addEventListener('dragend', () => {
+            if (_lastDragTarget) _lastDragTarget.classList.remove('drag-over-top', 'drag-over-bottom');
+            if (_draggedItem) _draggedItem.classList.remove('dragging');
+            _draggedItem = null;
+            _draggedIndex = -1;
+            _lastDragTarget = null;
+        });
+
         listContainer.appendChild(item);
     });
 
     resultsContainer.appendChild(listContainer);
     updateBatchCount();
+}
+
+// 【缺口H移植】燈箱大圖函式
+function showLightbox(src) {
+    const box = document.createElement('div');
+    box.id = 'mt-lightbox';
+    box.style.cssText = 'position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 9999; cursor: zoom-out;';
+    const img = document.createElement('img');
+    img.src = src;
+    img.style.cssText = 'max-width: 95vw; max-height: 95vh; object-fit: contain; border-radius: 4px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);';
+    box.appendChild(img);
+    document.body.appendChild(box);
+
+    const handleEsc = (e) => { if (e.key === 'Escape') closeLightbox(); };
+    const closeLightbox = () => {
+        box.remove();
+        document.removeEventListener('keydown', handleEsc);
+    };
+    box.addEventListener('click', closeLightbox);
+    document.addEventListener('keydown', handleEsc);
 }
 
 function updateBatchCount() {

@@ -374,6 +374,24 @@ input:checked + .mt-slider:before { transform: translateX(18px); }
     text-overflow: ellipsis;
 }
 
+/* --- 【缺口A】拖曳排序視覺回饋 --- */
+.mt-preview-item.dragging {
+    opacity: 0.4;
+    transform: scale(0.97);
+}
+
+.mt-preview-item.drag-over-top {
+    border-top: 2px solid var(--theme-accent);
+}
+
+.mt-preview-item.drag-over-bottom {
+    border-bottom: 2px solid var(--theme-accent);
+}
+
+.mt-preview-drag-handle:hover {
+    color: var(--theme-accent) !important;
+}
+
 /* --- 載入動畫層樣式 --- */
 #mt-loading-overlay {
     position: absolute;

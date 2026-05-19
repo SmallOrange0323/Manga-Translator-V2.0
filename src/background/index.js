@@ -1202,53 +1202,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       log.info('Background', `偵測到跳轉完成，啟動自動翻譯: ${tabId}`);
       await state.set('pendingAutoTranslate', null);
       const { resultTabId, mangaKey } = pendingAuto;
-      // 等待 DOM 穩定後再抓取圖片
-      setTimeout(() => {
-          chrome.tabs.sendMessage(tabId, { action: 'crawlImages' }, (response) => {
-              if (chrome.runtime.lastError) {
-                  log.warn('Background', `自動跳轉抓圖失敗: ${chrome.runtime.lastError.message}`);
-                  return;
-              }
-              if (response && response.images && response.images.length > 0) {
-                  state.set('isStopping', false);
-                  const images = response.images;
-                  const navLinks = response.navLinks || { prev: null, next: null };
-
-                  // 【對齊 v1.8.7】如果有原來的結果頁 resultTabId，直接向它發送重新載入訊謟
-                  if (resultTabId) {
-                      chrome.tabs.get(resultTabId, (resultTab) => {
-                          if (chrome.runtime.lastError || !resultTab) {
-                              // 結果頁已關閉，開新頁
-                              log.warn('Background', '結果頁已關閉，開新頁據結果頁');
-                              openNewResultPage(tabId, images, navLinks, mangaKey);
-                              return;
-                          }
-                          // 結果頁還在！將它移到前台並發送重載訊謟
-                          chrome.tabs.update(resultTabId, { active: true });
-                          chrome.tabs.sendMessage(resultTabId, {
-                              action: 'reloadAndTranslate',
-                              sourceTabId: tabId,
-                              images: images,
-                              navLinks: navLinks,
-                              mangaKey: mangaKey || null
-                          }, (res) => {
-                              if (chrome.runtime.lastError) {
-                                  log.warn('Background', '結果頁無回應，改開新頁');
-                                  openNewResultPage(tabId, images, navLinks, mangaKey);
-                              } else {
-                                  // 結果頁正在自踽啊，啟動翻譯任務
-                                  processMangaBatchPCMode(tabId, resultTabId, images, navLinks);
-                              }
-                          });
-                      });
-                  } else {
-                      openNewResultPage(tabId, images, navLinks, mangaKey);
-                  }
-              } else {
-                  log.warn('Background', '自動跳轉後未找到圖片');
-              }
-          });
-      }, 2000);
+      // 【缺口F移植】改用帶重試的接力翻譯啟動函式（8次 × 1.5秒間隔）
+      // 確保 content script 尚未就緒時仍能成功抓取圖片並啟動翻譯
+      autoStartBatchWithRetry(tabId, resultTabId, mangaKey);
   }
 
   // 1. 智慧標題辨識
@@ -1284,7 +1240,80 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }, 1200);
 });
 
+/**
+ * 【缺口F移植】帶重試的訊息傳送工具 (移植自 V1.8.6 sendMessageWithRetry)
+ * 解決頁面剛載入時 content script 尚未就緒的問題
+ */
+async function sendMessageWithRetry(tabId, message, maxRetries = 8, interval = 1500) {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            log.info('Background', `[AutoBatch] 正在連線分頁 content script (${i + 1}/${maxRetries})... action: ${message.action}`);
+            const response = await new Promise((resolve, reject) => {
+                chrome.tabs.sendMessage(tabId, message, (resp) => {
+                    if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+                    else resolve(resp);
+                });
+            });
+            log.info('Background', `[AutoBatch] 連線成功 (${message.action})`);
+            return response;
+        } catch (e) {
+            log.warn('Background', `[AutoBatch] 通訊重試失敗 (${i + 1}/${maxRetries}): ${e.message}`);
+            if (i === maxRetries - 1) throw e;
+            await new Promise(r => setTimeout(r, interval));
+        }
+    }
+}
+
+/**
+ * 【缺口F移植】帶重試的接力翻譯啟動函式 (移植自 V1.8.6 autoStartBatch)
+ * 跳轉後由 onTabsUpdated 呼叫，確保 content script 就緒後再抓圖
+ */
+async function autoStartBatchWithRetry(tabId, resultTabId, mangaKey) {
+    log.info('Background', `[AutoBatch] 嘗試開始接力翻譯 - TabID: ${tabId}`);
+    try {
+        const crawlResult = await sendMessageWithRetry(tabId, { action: 'crawlImages' });
+        if (!crawlResult || !crawlResult.images || crawlResult.images.length === 0) {
+            log.warn('Background', '[AutoBatch] 接力翻譯：抓圖結果為空，中止');
+            return;
+        }
+
+        await state.set('isStopping', false);
+        const images = crawlResult.images;
+        const navLinks = crawlResult.navLinks || { prev: null, next: null };
+
+        if (resultTabId) {
+            try {
+                const existingResultTab = await chrome.tabs.get(resultTabId);
+                if (existingResultTab) {
+                    chrome.tabs.update(resultTabId, { active: true });
+                    chrome.tabs.sendMessage(resultTabId, {
+                        action: 'reloadAndTranslate',
+                        sourceTabId: tabId,
+                        images,
+                        navLinks,
+                        mangaKey: mangaKey || null
+                    }, (res) => {
+                        if (chrome.runtime.lastError) {
+                            log.warn('Background', '[AutoBatch] 結果頁無回應，改開新頁');
+                            openNewResultPage(tabId, images, navLinks, mangaKey);
+                        } else {
+                            processMangaBatchPCMode(tabId, resultTabId, images, navLinks);
+                        }
+                    });
+                    return;
+                }
+            } catch (_) {
+                log.warn('Background', '[AutoBatch] 原有結果頁已關閉，開新頁');
+            }
+        }
+        openNewResultPage(tabId, images, navLinks, mangaKey);
+    } catch (err) {
+        log.error('Background', `[AutoBatch] 接力翻譯啟動失敗（8次重試均失敗）: ${err.message}`);
+    }
+}
+
 async function handleAddToQueue(task) {
+
     // 使用原子化更新，確保不會覆蓋並發的任務
     await state.update('novelQueue', (currentQueue) => {
         // chrome.storage 有時會把陣列反序列化成 {0: item, 1: item} 的物件
