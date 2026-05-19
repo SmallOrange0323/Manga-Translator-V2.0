@@ -25,28 +25,40 @@ function setRandomBackground() {
 }
 
 /**
- * setThemeLoading — 依當前主題設定 Loading 動畫圖片
- * 馬娘：隨機跑步 webp；公連：隨機 sprite 分格動畫（CSS）
+ * setThemeLoading — 依當前主題設定 Loading 動畫
+ * 馬娘：隨機跑步 webp（<img> src）；公連：隨機 sprite 分格動畫（CSS background + <div>）
  */
 function setThemeLoading() {
     const loadingImg = document.getElementById('mt-loading-gif');
     if (!loadingImg) return;
+
     if (currentTheme === 'priconne') {
         const sprite = PRICONNE_LOADING_SPRITES[Math.floor(Math.random() * PRICONNE_LOADING_SPRITES.length)];
         const url = chrome.runtime.getURL(`assets/loading_priconne/${sprite.file}`);
-        const frameH = 128; // 每幀高度 (px)，sprite 為直式分格
-        loadingImg.style.cssText = `
+        const frameH = 128; // 每幀高度 (px)，sprite 為垂直分格
+
+        // <img> 不支援 background-image sprite，改為 <div> 替換
+        const spriteDiv = document.createElement('div');
+        spriteDiv.id = 'mt-loading-gif';
+        spriteDiv.style.cssText = `
             width: 96px; height: ${frameH}px;
-            background: url('${url}') no-repeat top center;
+            background: url('${url}') no-repeat 0 0;
             background-size: 100% auto;
             image-rendering: pixelated;
-            animation: priconne-sprite-anim ${sprite.frames * 0.08}s steps(${sprite.frames}) infinite;
+            animation: priconne-sprite-anim ${(sprite.frames * 0.08).toFixed(2)}s steps(${sprite.frames}) infinite;
         `;
-        loadingImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; // 1x1 透明
+        loadingImg.replaceWith(spriteDiv);
     } else {
-        const randomAnim = RUNNING_ANIMS[Math.floor(Math.random() * RUNNING_ANIMS.length)];
-        loadingImg.style.cssText = 'width: 120px; height: auto; border-radius: 50%; box-shadow: 0 4px 15px rgba(0,0,0,0.1);';
-        loadingImg.src = chrome.runtime.getURL(`assets/running/${randomAnim}`);
+        // 確保元素是 <img>（防止公連切換回馬娘時仍是 <div>）
+        if (loadingImg.tagName !== 'IMG') {
+            const img = document.createElement('img');
+            img.id = 'mt-loading-gif';
+            img.alt = 'Loading...';
+            loadingImg.replaceWith(img);
+        }
+        const imgEl = document.getElementById('mt-loading-gif');
+        imgEl.style.cssText = 'width: 120px; height: auto; border-radius: 50%; box-shadow: 0 4px 15px rgba(0,0,0,0.1);';
+        imgEl.src = chrome.runtime.getURL(`assets/running/${RUNNING_ANIMS[Math.floor(Math.random() * RUNNING_ANIMS.length)]}`);
     }
 }
 
