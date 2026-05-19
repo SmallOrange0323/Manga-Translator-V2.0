@@ -90,11 +90,11 @@ export const STANDING_ASSETS = {
     ]
 };
 
-// 公連主題：Loading Sprite 資訊（CSS 分格動畫）
+// 公連主題：Loading 動圖（已轉換為 WebP）
 export const PRICONNE_LOADING_SPRITES = [
-    { name: 'peco',   frames: 18, file: 'sprite_peco.png'   },
-    { name: 'karyl',  frames: 19, file: 'sprite_karyl.png'  },
-    { name: 'kokkoro',frames: 19, file: 'sprite_kokkoro.png'}
+    { name: 'peco',   file: 'sprite_peco.webp'   },
+    { name: 'karyl',  file: 'sprite_karyl.webp'  },
+    { name: 'kokkoro',file: 'sprite_kokkoro.webp'}
 ];
 
 // =========================================================

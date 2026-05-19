@@ -584,14 +584,12 @@ function showTranslatingCard(imgCount = 0) {
     if (currentTheme === 'priconne') {
         const sprite = PRICONNE_LOADING_SPRITES[Math.floor(Math.random() * PRICONNE_LOADING_SPRITES.length)];
         const url = chrome.runtime.getURL(`assets/loading_priconne/${sprite.file}`);
-        animEl = document.createElement('div');
+        animEl = document.createElement('img');
+        animEl.src = url;
+        animEl.alt = "翻譯中...";
         animEl.style.cssText = `
-            width: 96px; height: 128px;
-            background: url('${url}') no-repeat 0 0;
-            background-size: 100% auto;
+            width: 96px; height: auto;
             image-rendering: pixelated;
-            --frames: ${sprite.frames};
-            animation: priconne-sprite-anim ${(sprite.frames * 0.08).toFixed(2)}s steps(${sprite.frames}) infinite;
             margin: 0 auto;
         `;
     } else {
