@@ -106,7 +106,7 @@ async function openSettings(e) {
         console.log("準備使用 tabs.create 開啟: " + url);
         await chrome.tabs.create({ url: url });
         console.log("✅ tabs.create 成功");
-        // 不呼叫 window.close()，讓瀏覽器在切換到新分頁時自動關閉 popup
+        window.close(); // 明確關閉 popup
     } catch (err) {
         console.error("tabs.create 失敗:", err.message);
         if (statusMsg) {
@@ -169,7 +169,13 @@ btnPanel.addEventListener('click', async () => {
     }
 });
 
-// 初始檢查：如果是行動端，調整文字
-if (!(chrome.sidePanel && typeof chrome.sidePanel.open === 'function')) {
-    if (panelDesc) panelDesc.textContent = "開啟行動版翻譯頁面";
+// 初始檢查：行動端隱藏「開啟翻譯面板」按鈕（對行動端無意義）
+// 行動端改由擴充功能直接跳轉，不需要這個入口
+const isMobileEnv = !(chrome.sidePanel && typeof chrome.sidePanel.open === 'function');
+if (isMobileEnv) {
+    // 行動端：完全隱藏面板按鈕
+    if (btnPanel) btnPanel.style.display = 'none';
+} else {
+    // 電腦端：確保面板按鈕可見（預設就是可見）
+    if (panelDesc) panelDesc.textContent = '在側邊欄開啟';
 }
