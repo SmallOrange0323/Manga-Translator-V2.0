@@ -142,23 +142,30 @@ function updateStatus(msg, isError = false) {
 }
 
 /**
- * 開始翻譯 (目前的邏輯：串接至背景腳本的批次處理)
+ * 開始翻譯
+ * 使用 PC_MODE 讓 background 自動開啟 result.html 顯示結果。
+ * 舊的 MOBILE_MODE 會把結果送回 mobile 選圖頁，但該頁沒有接收器，結果永遠不顯示。
  */
 async function startTranslation() {
     const selectedImages = Array.from(selectedIndices).map(i => foundImages[i]);
-    updateStatus(`正在準備翻譯 ${selectedImages.length} 張圖片...`);
-    
-    // 將選取的圖片與來源 ID 發送給 Background
+    updateStatus(`正在準備翻譯 ${selectedImages.length} 張圖片，即將開啟結果分頁...`);
+    btnTranslate.disabled = true;
+
     chrome.runtime.sendMessage({
-        action: 'START_MANGA_BATCH_MOBILE_MODE',
+        action: 'START_MANGA_BATCH_PC_MODE',
         payload: {
-            sourceTabId: sourceTabId, // background 接收的鍵值為 sourceTabId
-            images: selectedImages
+            tabId: sourceTabId,      // 漫畫來源分頁 ID
+            images: selectedImages,
+            mobile: true             // 告知結果頁使用行動版閱讀模式
         }
+    }, (response) => {
+        if (chrome.runtime.lastError) {
+            updateStatus('❌ 發送失敗: ' + chrome.runtime.lastError.message, true);
+            btnTranslate.disabled = false;
+            return;
+        }
+        updateStatus('✅ 翻譯指令已送出，正在開啟結果分頁...');
     });
-    
-    // 跳轉到結果頁面 (手機版會直接在當前分頁渲染結果)
-    updateStatus('指令已送出，正在準備圖文交錯渲染...');
 }
 
 // 啟動
