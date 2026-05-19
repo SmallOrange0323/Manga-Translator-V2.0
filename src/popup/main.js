@@ -71,21 +71,42 @@ window.addEventListener('unhandledrejection', (event) => {
 });
 
 // ── 開啟設定頁 ──
-// 注意：Edge Android 上帶 callback 的 openOptionsPage() 會靜默失敗
-// 正確做法是不帶 callback 直接呼叫，讓瀏覽器自行處理
-btnSettings.addEventListener('click', () => {
-    console.log("⚙️ 點擊設定按鈕...");
+// Android 擴充功能 Popup 中 <button> 的 click 事件可能被 WebView 攔截
+// 使用 touchend + click 雙重綁定，touchend 更快且在 Android 更可靠
+function openSettings(e) {
+    if (e && e.cancelable) e.preventDefault(); // 防止 touchend 後觸發 click 造成雙重執行
+    console.log("⚙️ 開啟設定觸發（事件類型: " + (e ? e.type : 'unknown') + "）");
+    
+    // 視覺回饋：馬上變色讓使用者知道有點到
+    if (btnSettings) {
+        btnSettings.style.background = 'rgba(0,120,212,0.1)';
+        setTimeout(() => { btnSettings.style.background = ''; }, 300);
+    }
+    
     try {
         chrome.runtime.openOptionsPage();
-        console.log("openOptionsPage() 已呼叫（無 callback）");
+        console.log("openOptionsPage() 已呼叫");
         window.close();
-    } catch (e) {
-        console.error("openOptionsPage 呼叫失敗:", e.message);
+    } catch (err) {
+        console.error("openOptionsPage 失敗:", err.message);
         if (statusMsg) {
             statusMsg.style.color = "red";
-            statusMsg.textContent = "開啟設定失敗";
+            statusMsg.textContent = "開啟設定失敗: " + err.message;
         }
     }
+}
+
+let settingsTouched = false;
+btnSettings.addEventListener('touchend', (e) => {
+    settingsTouched = true;
+    openSettings(e);
+    // 重置旗標，防止 click 不會在 300ms 後被攔截
+    setTimeout(() => { settingsTouched = false; }, 500);
+});
+
+btnSettings.addEventListener('click', (e) => {
+    if (settingsTouched) return; // touchend 已經處理過了，忽略重複的 click
+    openSettings(e);
 });
 
 
