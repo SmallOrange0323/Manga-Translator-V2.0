@@ -874,7 +874,31 @@ body.theme-priconne .skeleton-anim {
 }
 
 @media (max-width: 720px) {
-    .result-header { padding: 16px 20px; }
+    .result-header {
+        padding: 12px 16px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+        min-height: auto;
+    }
+    .header-left {
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+    }
+    .result-header h1 {
+        font-size: 16px;
+    }
+    .actions {
+        width: 100%;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .btn-export {
+        padding: 6px 12px;
+        font-size: 12px;
+        border-radius: 8px;
+    }
     .results-container { padding: 8px 16px 48px; }
 
     .result-card {
