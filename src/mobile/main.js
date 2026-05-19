@@ -34,7 +34,9 @@ async function init() {
     btnRefresh.addEventListener('click', () => scanImages());
     btnSelectAll.addEventListener('click', () => toggleSelectAll());
     btnTranslate.addEventListener('click', () => startTranslation());
-    btnOptions.addEventListener('click', () => chrome.runtime.openOptionsPage());
+    btnOptions.addEventListener('click', () => {
+        chrome.tabs.create({ url: chrome.runtime.getURL('src/options/index.html') });
+    });
 
     // 3. 執行第一次掃描
     scanImages();
