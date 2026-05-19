@@ -1039,6 +1039,15 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
         });
 
         if (validItems.length > 0) {
+            // 提前計算子批次，讓 catch 區塊中的多 Key 輪流重試也能使用
+            const PAYLOAD_LIMIT = 15_000_000;
+            const totalPayload = validItems.reduce((sum, v) => sum + v.b64.length, 0);
+            const subBatches = (batchSize > 1)
+                ? (totalPayload > PAYLOAD_LIMIT
+                    ? [validItems.slice(0, Math.ceil(validItems.length / 2)), validItems.slice(Math.ceil(validItems.length / 2))]
+                    : [validItems])
+                : null; // batchSize=1 時不使用 subBatches
+
             try {
                 if (batchSize > 1) {
                     // ── 批次路徑：多圖打包成一個 API 請求 ──
@@ -1046,13 +1055,6 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
                     if (i > 0 && requestDelay > 0) {
                         await new Promise(r => setTimeout(r, requestDelay));
                     }
-                    
-                    // 請求大小監管：若總 Base64 長度超過 15MB，拆分為兩個子批次
-                    const PAYLOAD_LIMIT = 15_000_000;
-                    const totalPayload = validItems.reduce((sum, v) => sum + v.b64.length, 0);
-                    const subBatches = totalPayload > PAYLOAD_LIMIT
-                        ? [validItems.slice(0, Math.ceil(validItems.length / 2)), validItems.slice(Math.ceil(validItems.length / 2))]
-                        : [validItems];
 
                     if (subBatches.length > 1) {
                         log.warn('Background', `[批次] 請求體過大 (${Math.round(totalPayload / 1_000_000)}MB)，自動拆分為 ${subBatches.length} 個子批次。`);
