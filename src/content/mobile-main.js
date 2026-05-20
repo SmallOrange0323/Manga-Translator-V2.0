@@ -1,28 +1,36 @@
 import { log } from '../utils/logger.js';
 import { state } from '../utils/state.js';
 import { crawlImages } from './manga-engine.js';
-import { getNovelParagraphs, insertPlaceholders, injectTranslation } from './novel-engine.js';
+import { getNovelParagraphs, insertPlaceholders, injectNovelBatchResult, translateUIElements, collectFailures, getParagraphText } from './novel-engine.js';
+
+// 本地小說批次翻譯拉取佇列
+let novelBatchQueue = [];
+
+/**
+ * 傳送下一個小說翻譯批次給背景服務，實現拉取式佇列控速
+ */
+function sendNextNovelBatch() {
+    if (novelBatchQueue.length === 0) {
+        log.info('Content-Mobile', '所有小說批次已翻譯完成');
+        return;
+    }
+    const batch = novelBatchQueue.shift();
+    log.info('Content-Mobile', `發送批次任務 ${batch.batchIndex + 1}/${batch.totalBatches}，段落數: ${batch.texts.length}`);
+    chrome.runtime.sendMessage({
+        action: 'translateNovelParagraphs',
+        batchIndex: batch.batchIndex,
+        totalBatches: batch.totalBatches,
+        startIdx: batch.startIdx,
+        texts: batch.texts,
+        retryIndices: batch.retryIndices
+    });
+}
 
 /**
  * 啟動行動端專用 UI 系統 (Overlay Drawer 模式)
  */
 export function initMobileMode() {
   log.info('Content-Mobile', 'Initializing Mobile Overlay Drawer...');
-
-  // 1. 小說模式連動：自動更新段落翻譯結果
-  state.onChanged((changes) => {
-    if (changes.novelResults) {
-        const results = changes.novelResults.newValue;
-        log.info('Content-Mobile', `收到小說翻譯更新，結果筆數: ${results?.length || 0}`);
-        if (results && results.length > 0) {
-            const lastResult = results[results.length - 1];
-            log.info('Content-Mobile', `嘗試注入第 ${lastResult.idx} 段翻譯`);
-            if (!lastResult.isManga) {
-                injectTranslation(lastResult.idx, lastResult.translation, lastResult.failed);
-            }
-        }
-    }
-  });
 
   // 1. 建立 Shadow DOM 容器
   const container = document.createElement('div');
@@ -373,6 +381,27 @@ export function initMobileMode() {
         return false;
     }
 
+    if (request.action === 'injectNovelBatchResult') {
+        log.info('Content-Mobile', `收到譯文批次結果，BatchIndex: ${request.batchIndex}，是否失敗: ${request.isFailed}`);
+        injectNovelBatchResult(request.batchIndex, request.translations, request.retryIndices, request.isFailed);
+        sendNextNovelBatch(); // 注入完畢，主動拉取下一批！
+        sendResponse({ ok: true });
+        return false;
+    }
+
+    if (request.action === 'retryAllFailed') {
+        log.info('Content-Mobile', '收到重試所有失敗段落訊息');
+        retryAllFailedNovels();
+        sendResponse({ success: true });
+        return false;
+    }
+
+    if (request.action === 'collectFailures') {
+        const failedCount = collectFailures().length;
+        sendResponse({ count: failedCount });
+        return false;
+    }
+
     if (request.action === 'crawlImages') {
         const results = crawlImages();
         sendResponse({ 
@@ -403,16 +432,84 @@ export function initMobileMode() {
         isProcessingNovel: false 
     }, () => {
         insertPlaceholders(paragraphs);
-        const texts = paragraphs.map(p => p.textContent.trim());
-        chrome.runtime.sendMessage({
-            action: 'ADD_TO_QUEUE',
-            payload: {
-                // 不傳 tabId，讓背景腳本自動抓 sender.tab.id
-                startIndex: 0,
-                texts: texts
-            }
-        });
+        
+        // 讀取 batchSize (預設 50)
+        const BATCH_SIZE = window.mt_currentNovelBatchSize || 50;
+        
+        // 劃分批次，排入 novelBatchQueue
+        novelBatchQueue = [];
+        const totalBatches = Math.ceil(paragraphs.length / BATCH_SIZE);
+        
+        for (let b = 0; b < totalBatches; b++) {
+            const start = b * BATCH_SIZE;
+            const end = Math.min(start + BATCH_SIZE, paragraphs.length);
+            
+            const batchTexts = paragraphs.slice(start, end).map((p, offset) => {
+                const globalIdx = start + offset;
+                return getParagraphText(globalIdx);
+            });
+            
+            novelBatchQueue.push({
+                batchIndex: b,
+                totalBatches,
+                startIdx: start,
+                texts: batchTexts
+            });
+        }
+        
+        // 啟動首批拉取
+        sendNextNovelBatch();
+        // 啟動全網頁 UI 翻譯
+        translateUIElements();
     });
+  }
+
+  /**
+   * 重試所有翻譯失敗的段落，利用同一個佇列機制控速
+   */
+  function retryAllFailedNovels() {
+      const failedIndices = collectFailures();
+      if (failedIndices.length === 0) {
+          log.info('Content-Mobile', '無任何失敗段落需要重試');
+          return;
+      }
+      
+      log.info('Content-Mobile', `開始重譯所有失敗段落，共 ${failedIndices.length} 段`);
+      
+      // 將所有失敗的段落標記為翻譯中 ⏳
+      failedIndices.forEach(idx => {
+          const container = document.querySelector(`.mt-novel-trans[data-novel-idx="${idx}"]`);
+          if (container) {
+              container.dataset.status = 'retrying';
+              const textSpan = container.querySelector('span');
+              if (textSpan) textSpan.textContent = '⏳ 正在重譯段落...';
+              const actions = container.querySelector('.mt-novel-actions');
+              if (actions) actions.style.display = 'none';
+          }
+      });
+      
+      const BATCH_SIZE = window.mt_currentNovelBatchSize || 50;
+      novelBatchQueue = [];
+      const totalBatches = Math.ceil(failedIndices.length / BATCH_SIZE);
+      
+      for (let b = 0; b < totalBatches; b++) {
+          const start = b * BATCH_SIZE;
+          const end = Math.min(start + BATCH_SIZE, failedIndices.length);
+          const batchIndices = failedIndices.slice(start, end);
+          
+          const batchTexts = batchIndices.map(idx => getParagraphText(idx));
+          
+          novelBatchQueue.push({
+              batchIndex: b,
+              totalBatches,
+              startIdx: start,
+              texts: batchTexts,
+              retryIndices: batchIndices
+          });
+      }
+      
+      // 啟動重試拉取
+      sendNextNovelBatch();
   }
 
   log.info('Content-Mobile', 'Mobile Overlay Drawer ready.');

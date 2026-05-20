@@ -97,91 +97,110 @@ async function processNovelQueue() {
             const modelName = await state.get('novelModelName', 'gemini-1.5-flash');
             const fallbackModelName = await state.get('fallbackModelName', 'gemini-1.5-flash');
             const novelPrompt = await state.get('novelPrompt', '');
-            const batchSize = parseInt(await state.get('novelBatchSize', 50)) || 50;
             const requestDelay = await state.get('requestDelay', 3000);
 
             const allTranslatedResults = []; // 用於結尾萃取
+            const isRetry = Array.isArray(task.retryIndices) && task.retryIndices.length > 0;
 
-            // 批次翻譯模式
-            for (let i = 0; i < task.texts.length; i += batchSize) {
-                const batch = task.texts.slice(i, i + batchSize).filter(t => t && t.trim());
-                if (batch.length === 0) continue;
+            try {
+                const typeStr = isRetry ? '重譯批次' : '新譯批次';
+                log.info('Background', `[小說批次] ${typeStr} 處理中，BatchIndex: ${(task.batchIndex || 0) + 1}/${task.totalBatches || 1}，段落數: ${task.texts.length}`);
 
-                try {
-                    log.info('Background', `[小說批次] 翻譯第 ${i + 1}~${Math.min(i + batchSize, task.texts.length)} 段（共 ${task.texts.length} 段）`);
+                // 提早更新進度
+                await state.setThrottled('novelProgress', {
+                    status: `[處理中] 正在翻譯第 ${(task.batchIndex || 0) + 1}/${task.totalBatches || 1} 批小說，請稍候...`
+                }, 0); 
 
-                    // 【修正 1】提早更新進度
-                    await state.setThrottled('novelProgress', {
-                        status: `[批次處理] 正在翻譯第 ${i + 1} ~ ${Math.min(i + batchSize, task.texts.length)} 段，請稍候...`
-                    }, 0); 
+                // 【V1.8.6 移植】為傳送文本加上索引前綴 [N]，強化模型對位
+                const indexedTexts = task.texts.map((t, idx) => `[${idx}] ${t}`);
 
-                    // 【V1.8.6 移植】為傳送文本加上索引前綴 [N]，強化模型對位
-                    const indexedTexts = batch.map((t, idx) => `[${idx}] ${t}`);
-
-                    // 強制要求 JSON 結構化輸出 (Response Schema)
-                    const schema = {
-                        type: 'OBJECT',
-                        properties: {
-                            translations: { 
-                                type: 'ARRAY', 
-                                items: { 
-                                    type: 'OBJECT',
-                                    properties: {
-                                        index: { type: 'INTEGER' },
-                                        text: { type: 'STRING' }
-                                    },
-                                    required: ['index', 'text']
-                                }
+                // 強制要求 JSON 結構化輸出 (Response Schema)
+                const schema = {
+                    type: 'OBJECT',
+                    properties: {
+                        translations: { 
+                            type: 'ARRAY', 
+                            items: { 
+                                type: 'OBJECT',
+                                properties: {
+                                    index: { type: 'INTEGER' },
+                                    text: { type: 'STRING' }
+                                },
+                                required: ['index', 'text']
                             }
-                        },
-                        required: ['translations']
+                        }
+                    },
+                    required: ['translations']
+                };
+
+                const finalPrompt = (novelPrompt || '你是一位專業的翻譯師，將日文翻譯為繁體中文。') + 
+                    '\n請嚴格遵守 1:1 對位，輸出 JSON 必須包含 index (0-based) 與 text (譯文)。';
+
+                const result = await translateTexts(indexedTexts, { 
+                    model: modelName,
+                    fallbackModel: fallbackModelName,
+                    prompt: finalPrompt,
+                    schema: schema, 
+                    glossarySnippet
+                }); 
+
+                // 解析結果
+                let translations = [];
+                if (result && result.translations) {
+                    const sorted = result.translations.sort((a, b) => a.index - b.index);
+                    translations = sorted.map(item => item.text);
+                } else if (Array.isArray(result)) {
+                    translations = result;
+                }
+                
+                if (translations.length === 0) throw new Error('翻譯結果為空或格式錯誤'); 
+
+                // 補全配額更新，傳入 modelName 支援 Gemma 識別
+                await incrementDailyUsage(modelName);
+
+                // 逐條寫入結果以更新 status / stats 累加
+                for (let k = 0; k < task.texts.length; k++) {
+                    const translation = translations[k] || '（翻譯失敗）';
+                    const globalIdx = isRetry ? task.retryIndices[k] : (task.startIdx + k);
+                    const resultItem = {
+                        tabId: task.tabId,
+                        idx: globalIdx,
+                        original: task.texts[k],
+                        translation: translation
                     };
+                    allTranslatedResults.push({ original: task.texts[k], translation: translation });
+                    await state.update('novelResults', (current = []) => [...current, resultItem]);
+                }
 
-                    const finalPrompt = (novelPrompt || '你是一位專業的翻譯師，將日文翻譯為繁體中文。') + 
-                        '\n請嚴格遵守 1:1 對位，輸出 JSON 必須包含 index (0-based) 與 text (譯文)。';
+                // 批次完成後通知前端注入
+                log.info('Background', `[小說批次] 完成翻譯，即將發送訊息給前台分頁: ${task.tabId}`);
+                await chrome.tabs.sendMessage(task.tabId, {
+                    action: 'injectNovelBatchResult',
+                    batchIndex: task.batchIndex,
+                    translations: translations,
+                    retryIndices: task.retryIndices,
+                    isFailed: false
+                });
 
-                    const result = await translateTexts(indexedTexts, { 
-                        model: modelName,
-                        fallbackModel: fallbackModelName,
-                        prompt: finalPrompt,
-                        schema: schema, 
-                        glossarySnippet
-                    }); 
+                // 更新進度
+                await state.setThrottled('novelProgress', {
+                    status: `已完成第 ${(task.batchIndex || 0) + 1} / ${task.totalBatches || 1} 批`
+                }, 0);
 
-                    // 解析結果
-                    let translations = [];
-                    if (result && result.translations) {
-                        const sorted = result.translations.sort((a, b) => a.index - b.index);
-                        translations = sorted.map(item => item.text);
-                    } else if (Array.isArray(result)) {
-                        translations = result;
-                    }
-                    
-                    if (translations.length === 0) throw new Error('翻譯結果為空或格式錯誤'); 
-
-                    // 逐條寫入結果
-                    for (let k = 0; k < batch.length; k++) {
-                        const translation = translations[k] || '（翻譯失敗）';
-                        const resultItem = {
-                            tabId: task.tabId,
-                            idx: task.startIndex + i + k,
-                            original: batch[k],
-                            translation: translation
-                        };
-                        allTranslatedResults.push({ original: batch[k], translation: translation });
-                        await state.update('novelResults', (current = []) => [...current, resultItem]);
-                    }
-
-                    // 批次完成後再次更新進度
-                    await state.setThrottled('novelProgress', {
-                        status: `已完成第 ${Math.min(i + batchSize, task.texts.length)} / ${task.texts.length} 段`
-                    }, 0);
-
-                    if (i + batchSize < task.texts.length) {
-                        await new Promise(r => setTimeout(r, requestDelay));
-                    }
-                } catch (batchErr) {
-                    log.error('Background', `批次翻譯失敗 (第 ${i + 1} 批):`, batchErr);
+            } catch (batchErr) {
+                log.error('Background', `批次翻譯失敗 (第 ${(task.batchIndex || 0) + 1} 批):`, batchErr);
+                
+                // 翻譯失敗也主動發送 injectNovelBatchResult 給前台，讓前台更新 UI 呈現失敗並顯示「重試」按鈕
+                try {
+                    await chrome.tabs.sendMessage(task.tabId, {
+                        action: 'injectNovelBatchResult',
+                        batchIndex: task.batchIndex,
+                        translations: task.texts.map(() => '（翻譯失敗）'),
+                        retryIndices: task.retryIndices,
+                        isFailed: true
+                    });
+                } catch (msgErr) {
+                    log.error('Background', '無法將失敗訊息傳給前台分頁:', msgErr);
                 }
             }
 
@@ -206,6 +225,11 @@ async function processNovelQueue() {
                         log.warn('Background', `[小說萃取] 發生錯誤: ${err.message}`);
                     }
                 }, 1000);
+            }
+
+            // 批次間延遲控速
+            if (queue.length > 0) {
+                await new Promise(r => setTimeout(r, requestDelay));
             }
         }
     } catch (globalErr) {
@@ -233,6 +257,130 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       log.warn('Background', '收到停止指令，正在中斷所有任務...');
       sendResponse({ status: 'stopping' });
       return false;
+  }
+
+  if (message.action === 'translateNovelParagraphs') {
+      const { batchIndex, totalBatches, startIdx, texts, retryIndices } = message;
+      const tabId = sender.tab?.id;
+      if (!tabId) {
+          sendResponse({ error: '找不到分頁 ID' });
+          return false;
+      }
+
+      state.set('isStopping', false);
+      state.set('isBatchPaused', false);
+
+      const task = {
+          tabId,
+          batchIndex,
+          totalBatches,
+          startIdx,
+          texts,
+          retryIndices
+      };
+
+      handleAddToQueue(task).then(() => {
+          processNovelQueue();
+      }).catch(err => log.error('Background', '小說任務加入佇列失敗:', err));
+
+      sendResponse({ status: 'queued' });
+      return false;
+  }
+
+  if (message.action === 'translateUIBatch') {
+      const { texts } = message;
+      (async () => {
+          try {
+              const model = await state.get('novelModelName', 'gemini-1.5-flash');
+              const fallbackModel = await state.get('fallbackModelName', 'gemini-1.5-flash');
+              
+              let glossarySnippet = '';
+              const tabId = sender.tab?.id;
+              if (tabId) {
+                  const navCtx = await state.get('navigationContext', {});
+                  const mangaKey = navCtx[tabId];
+                  if (mangaKey) {
+                      const gl = await loadGlossary(mangaKey);
+                      if (gl?.terms) glossarySnippet = buildGlossaryPromptSnippet(gl.terms);
+                  }
+              }
+              
+              const prompt = '你是一位專業的翻譯師，將日文翻譯為繁體中文。請保持原文的語意、格式與標點符號，只進行簡潔直譯，不可有任何額外的解釋或包裝。請嚴格遵守 1:1 對位，輸出 JSON 必須包含 index (0-based) 與 text (譯文)。';
+              
+              // 加上 [idx] 前綴
+              const indexedTexts = texts.map((t, idx) => `[${idx}] ${t}`);
+              
+              // 使用嚴格的 JSON 結構化輸出以確保安全對齊
+              const schema = {
+                  type: 'OBJECT',
+                  properties: {
+                      translations: {
+                          type: 'ARRAY',
+                          items: {
+                              type: 'OBJECT',
+                              properties: {
+                                  index: { type: 'INTEGER' },
+                                  text: { type: 'STRING' }
+                              },
+                              required: ['index', 'text']
+                          }
+                      }
+                  },
+                  required: ['translations']
+              };
+
+              const result = await translateTexts(indexedTexts, {
+                  model,
+                  fallbackModel,
+                  prompt,
+                  schema,
+                  glossarySnippet
+              });
+              
+              // 建立預設以原文填充的 translations 陣列，長度 100% 相同
+              const finalTranslations = [...texts];
+              let hasValidResult = false;
+              
+              if (result && result.translations && Array.isArray(result.translations)) {
+                  result.translations.forEach(item => {
+                      const idx = item.index;
+                      if (typeof idx === 'number' && idx >= 0 && idx < texts.length) {
+                          finalTranslations[idx] = item.text || texts[idx];
+                      }
+                  });
+                  hasValidResult = true;
+              } else {
+                  // 回退機制：嘗試一般解析
+                  if (Array.isArray(result)) {
+                      result.forEach((resText, idx) => {
+                          if (idx < texts.length) {
+                              finalTranslations[idx] = resText || texts[idx];
+                          }
+                      });
+                      hasValidResult = true;
+                  } else if (result?.translations && Array.isArray(result.translations)) {
+                      result.translations.forEach((resText, idx) => {
+                          if (idx < texts.length) {
+                              finalTranslations[idx] = resText || texts[idx];
+                          }
+                      });
+                      hasValidResult = true;
+                  }
+              }
+
+              if (hasValidResult) {
+                  await incrementDailyUsage(model);
+                  sendResponse({ translations: finalTranslations });
+              } else {
+                  // 最終 fallback：返回全部空譯文或日文原文
+                  sendResponse({ translations: texts.map(() => '') });
+              }
+          } catch (err) {
+              log.error('Background', 'translateUIBatch 發生錯誤:', err);
+              sendResponse({ translations: texts.map(() => ''), error: err.message });
+          }
+      })();
+      return true; // 保持非同步通道
   }
   
   if (message.action === 'ADD_TO_QUEUE') {
@@ -638,6 +786,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               });
               
               if (result?.results && result.results[0]) {
+                  await incrementDailyUsage(model);
                   sendResponse({ success: true, translation: result.results[0] });
               } else {
                   throw new Error('API 回應格式異常');
@@ -1293,7 +1442,7 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
                     data: { image: imgSrc, error: res?.error || '翻譯失敗或無回應' }
                 });
             } else {
-                await incrementDailyUsage();
+                await incrementDailyUsage(modelName);
                 allBatchResults.push(...(res.results || []));
                 chrome.tabs.sendMessage(resultTabId, {
                     action: 'appendResult',
@@ -1391,11 +1540,42 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     }).catch(() => {});
   }
 
-  // 2. 小說自動續傳
-  const novelModeEnabled = await state.get('novelModeEnabled', false);
-  if (!novelModeEnabled) return;
+  // 2. 小說自動續傳 (Tab-Bound)
+  const novelModeTabs = await state.get('novelModeTabs', {});
+  const allowedOrigin = novelModeTabs[tabId];
+  if (!allowedOrigin) return;
 
   const currentUrl = tab.url || '';
+  let currentOrigin = '';
+  try {
+      if (currentUrl) {
+          currentOrigin = new URL(currentUrl).origin;
+      }
+  } catch (e) {
+      log.error('Background', `無法解析當前跳轉網址的 origin: ${currentUrl}`, e);
+  }
+
+  log.info('Background', `小說續傳判定 - 分頁: ${tabId}, 允許網域: ${allowedOrigin}, 當前網域: ${currentOrigin}`);
+
+  // 跨網域安全保護：只要允許的網域與當前網域不一致（包含舊有殘留的 true 值），自動停用並清除狀態
+  if (allowedOrigin !== currentOrigin) {
+      log.warn('Background', `偵測到網域不相符或舊狀態殘留（允許: ${allowedOrigin}, 當前: ${currentOrigin}），自動停用分頁 ${tabId} 的小說模式`);
+      
+      // 清除狀態
+      await state.update('novelModeTabs', (current = {}) => {
+          const next = { ...current };
+          delete next[tabId];
+          return next;
+      });
+      
+      // 清除跳轉網址紀錄
+      delete lastNovelUrlByTab[tabId];
+
+      // 通知前台終止小說翻譯
+      chrome.tabs.sendMessage(tabId, { action: 'abortNovelTranslation' }).catch(() => {});
+      return;
+  }
+
   if (lastNovelUrlByTab[tabId] === currentUrl) return; // 防止重複觸發
   
   lastNovelUrlByTab[tabId] = currentUrl;
@@ -1406,6 +1586,25 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     chrome.tabs.sendMessage(tabId, { action: 'AUTO_TRANSLATE_PAGE' })
       .catch(err => log.warn('Background', `Auto-translate signal failed: ${err.message}`));
   }, 1200);
+});
+
+// 3. 垃圾回收：當分頁關閉時，清除該分頁的小說模式狀態與相關 context
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  log.info('Background', `偵測到分頁關閉 (tabId=${tabId})，執行垃圾回收...`);
+  
+  // 1. 清除小說模式狀態
+  await state.update('novelModeTabs', (current = {}) => {
+    const next = { ...current };
+    delete next[tabId];
+    return next;
+  });
+
+  // 2. 清除 navigationContext 狀態
+  await state.update('navigationContext', (current = {}) => {
+    const next = { ...current };
+    delete next[tabId];
+    return next;
+  });
 });
 
 /**
@@ -1547,9 +1746,14 @@ async function ensureContentScriptInjected(tabId) {
 /**
  * 更新每日翻譯次數統計（用於 getDailyTokenCount 配額顯示）
  * 在每張圖片翻譯完成後呼叫此函式
+ * @param {string} modelName - 當前使用的模型名稱
  */
-async function incrementDailyUsage() {
+async function incrementDailyUsage(modelName = '') {
     try {
+        if (modelName && modelName.toLowerCase().includes('gemma')) {
+            log.info('Background', `使用 Gemma 模型 (${modelName})，不記入每日額度`);
+            return;
+        }
         const today = new Date().toISOString().split('T')[0];
         const savedDate = await state.get('usageDate', '');
         if (savedDate !== today) {

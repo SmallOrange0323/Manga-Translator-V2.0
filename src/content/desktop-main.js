@@ -1,26 +1,36 @@
 import { state } from '../utils/state.js';
-import { getNovelParagraphs, insertPlaceholders, injectTranslation } from './novel-engine.js';
+import { getNovelParagraphs, insertPlaceholders, injectNovelBatchResult, translateUIElements, collectFailures, getParagraphText } from './novel-engine.js';
 import { toggleSelectionMode, crawlImages } from './manga-engine.js';
 import { log } from '../utils/logger.js';
+
+// 本地小說批次翻譯拉取佇列
+let novelBatchQueue = [];
+
+/**
+ * 傳送下一個小說翻譯批次給背景服務，實現拉取式佇列控速
+ */
+function sendNextNovelBatch() {
+    if (novelBatchQueue.length === 0) {
+        log.info('Content-Desktop', '所有小說批次已翻譯完成');
+        return;
+    }
+    const batch = novelBatchQueue.shift();
+    log.info('Content-Desktop', `發送批次任務 ${batch.batchIndex + 1}/${batch.totalBatches}，段落數: ${batch.texts.length}`);
+    chrome.runtime.sendMessage({
+        action: 'translateNovelParagraphs',
+        batchIndex: batch.batchIndex,
+        totalBatches: batch.totalBatches,
+        startIdx: batch.startIdx,
+        texts: batch.texts,
+        retryIndices: batch.retryIndices
+    });
+}
 
 /**
  * 啟動電腦版專用 UI 系統
  */
 export function initDesktopMode() {
   log.info('Content-Desktop', 'Initializing Desktop Mode...');
-
-  // 連動狀態機：自動更新畫面翻譯結果
-  state.onChanged((changes) => {
-    if (changes.novelResults) {
-        const results = changes.novelResults.newValue;
-        if (results && results.length > 0) {
-            const lastResult = results[results.length - 1];
-            if (!lastResult.isManga) {
-                injectTranslation(lastResult.idx, lastResult.translation, lastResult.failed);
-            }
-        }
-    }
-  });
 
   // 監聽背景訊息 (電腦版專屬)
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -33,6 +43,24 @@ export function initDesktopMode() {
             log.error('Content-Desktop', 'startNovelTranslation 發生錯誤:', e);
             sendResponse({ started: false, error: e.message });
         }
+    }
+
+    if (request.action === 'injectNovelBatchResult') {
+        log.info('Content-Desktop', `收到譯文批次結果，BatchIndex: ${request.batchIndex}，是否失敗: ${request.isFailed}`);
+        injectNovelBatchResult(request.batchIndex, request.translations, request.retryIndices, request.isFailed);
+        sendNextNovelBatch(); // 注入完畢，主動拉取下一批！
+        sendResponse({ ok: true });
+    }
+
+    if (request.action === 'retryAllFailed') {
+        log.info('Content-Desktop', '收到重試所有失敗段落訊息');
+        retryAllFailedNovels();
+        sendResponse({ success: true });
+    }
+
+    if (request.action === 'collectFailures') {
+        const failedCount = collectFailures().length;
+        sendResponse({ count: failedCount });
     }
 
     if (request.action === 'crawlImages') {
@@ -125,28 +153,83 @@ function startNovelTranslation() {
     insertPlaceholders(paragraphs);
     log.info('Content-Desktop', '佔位符插入完成');
     
+    // 清理舊有的翻譯狀態
     chrome.storage.local.remove('novelResults');
-    // Bug #2 修復：先 clone 段落並移除 .mt-novel-trans，防止重譯時把中文譯文一起送給 AI
-    const texts = paragraphs.map(p => {
-        const clone = p.cloneNode(true);
-        const trans = clone.querySelector('.mt-novel-trans');
-        if (trans) trans.remove();
-        return clone.textContent.trim();
+    
+    // 讀取 batchSize (預設 50)
+    const BATCH_SIZE = window.mt_currentNovelBatchSize || 50;
+    
+    // 劃分批次，排入 novelBatchQueue
+    novelBatchQueue = [];
+    const totalBatches = Math.ceil(paragraphs.length / BATCH_SIZE);
+    
+    for (let b = 0; b < totalBatches; b++) {
+        const start = b * BATCH_SIZE;
+        const end = Math.min(start + BATCH_SIZE, paragraphs.length);
+        
+        const batchTexts = paragraphs.slice(start, end).map((p, offset) => {
+            const globalIdx = start + offset;
+            return getParagraphText(globalIdx);
+        });
+        
+        novelBatchQueue.push({
+            batchIndex: b,
+            totalBatches,
+            startIdx: start,
+            texts: batchTexts
+        });
+    }
+    
+    // 啟動首批拉取
+    sendNextNovelBatch();
+    // 啟動全網頁 UI 翻譯
+    translateUIElements();
+}
+
+/**
+ * 重試所有翻譯失敗的段落，利用同一個佇列機制控速
+ */
+function retryAllFailedNovels() {
+    const failedIndices = collectFailures();
+    if (failedIndices.length === 0) {
+        log.info('Content-Desktop', '無任何失敗段落需要重試');
+        return;
+    }
+    
+    log.info('Content-Desktop', `開始重譯所有失敗段落，共 ${failedIndices.length} 段`);
+    
+    // 將所有失敗的段落標記為翻譯中 ⏳
+    failedIndices.forEach(idx => {
+        const container = document.querySelector(`.mt-novel-trans[data-novel-idx="${idx}"]`);
+        if (container) {
+            container.dataset.status = 'retrying';
+            const textSpan = container.querySelector('span');
+            if (textSpan) textSpan.textContent = '⏳ 正在重譯段落...';
+            const actions = container.querySelector('.mt-novel-actions');
+            if (actions) actions.style.display = 'none';
+        }
     });
     
-    log.info('Content-Desktop', `準備發送 ADD_TO_QUEUE 訊息，texts 數量: ${texts.length}`);
-    chrome.runtime.sendMessage({
-        action: 'ADD_TO_QUEUE',
-        payload: {
-            tabId: null,
-            startIndex: 0,
-            texts: texts
-        }
-    }, (response) => {
-        if (chrome.runtime.lastError) {
-            log.error('Content-Desktop', 'ADD_TO_QUEUE 失敗:', chrome.runtime.lastError.message);
-        } else {
-            log.info('Content-Desktop', 'ADD_TO_QUEUE 成功:', response);
-        }
-    });
+    const BATCH_SIZE = window.mt_currentNovelBatchSize || 50;
+    novelBatchQueue = [];
+    const totalBatches = Math.ceil(failedIndices.length / BATCH_SIZE);
+    
+    for (let b = 0; b < totalBatches; b++) {
+        const start = b * BATCH_SIZE;
+        const end = Math.min(start + BATCH_SIZE, failedIndices.length);
+        const batchIndices = failedIndices.slice(start, end);
+        
+        const batchTexts = batchIndices.map(idx => getParagraphText(idx));
+        
+        novelBatchQueue.push({
+            batchIndex: b,
+            totalBatches,
+            startIdx: start,
+            texts: batchTexts,
+            retryIndices: batchIndices
+        });
+    }
+    
+    // 啟動重試拉取
+    sendNextNovelBatch();
 }

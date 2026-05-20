@@ -77,6 +77,7 @@ const glossaryInfoGroup = document.getElementById('mt-glossary-info-group');
 const glossaryManualGroup = document.getElementById('mt-glossary-manual');
 const switchGlossaryBtn = document.getElementById('mt-switch-glossary-btn');
 const glossarySelect = document.getElementById('mt-glossary-select');
+const novelRetryAllBtn = document.getElementById('mt-novel-retry-all-btn');
 
 let currentMangaKey = null;
 let isManualGlossary = false; // 是否處於手動選擇狀態
@@ -248,6 +249,10 @@ state.onChanged((changes) => {
         updateNovelStatus(changes.novelProgress.newValue);
     }
 
+    if (changes.novelModeTabs) {
+        updateNovelModeToggleForCurrentTab();
+    }
+
         if (changes.isStopping) {
             const stopBtn = document.getElementById('mt-stop-btn');
             const startBtn = document.getElementById('mt-start-btn');
@@ -283,24 +288,15 @@ chrome.runtime.onMessage.addListener((request) => {
     }
     // P1 移植：配額即時更新（對齊 v1.8.7 updateTokenDisplay）
     if (request.action === 'updateTokenDisplay') {
-        state.get('usageTotal', 1000).then(total => {
-            const count = request.count || 0;
-            const percent = Math.min(100, (count / total) * 100);
-            const countEl = document.getElementById('mt-quota-count');
-            const fillEl = document.getElementById('mt-quota-bar-fill');
-            if (countEl) countEl.textContent = `${count} / ${total}`;
-            if (fillEl) fillEl.style.width = `${percent}%`;
-        });
+        updateQuotaUI();
     }
 });
 
 async function updateQuotaUI() {
     const count = await state.get('usageCount', 0);
 
-    // 【缺口I移植】依 API Key 數量動態計算每日上限（每 Key 500 次，與 V1 一致）
-    const apiKeyRaw = await new Promise(resolve =>
-        chrome.storage.sync.get(['apiKey'], d => resolve(d.apiKey || ''))
-    );
+    // 從 StateManager (chrome.storage.local) 讀取 apiKey，以精準統計多 API Key 的數量
+    const apiKeyRaw = await state.get('apiKey', '');
     const keyCount = Math.max(
         (apiKeyRaw.split('\n').map(k => k.trim()).filter(k => k)).length,
         1
@@ -353,7 +349,8 @@ document.getElementById('mt-start-btn').onclick = () => {
         const tabId = tabs[0].id;
 
         // ── 漫畫模式（原有邏輯）──
-        const isNovelMode = await state.get('novelModeEnabled', false);
+        const novelModeTabs = await state.get('novelModeTabs', {});
+        const isNovelMode = !!novelModeTabs[tabId];
         if (isNovelMode) {
             alert('目前為小說模式，此按鈕專供漫畫使用。請關閉小說模式後再試。');
             return;
@@ -779,26 +776,75 @@ function updateBatchCount() {
 const novelModeToggle = document.getElementById('mt-novel-mode-toggle');
 const globalGlossaryToggle = document.getElementById('mt-global-glossary-toggle');
 
-if (novelModeToggle) {
-    state.get('novelModeEnabled', false).then(val => {
-        novelModeToggle.checked = !!val;
+// 💡 分頁個別綁定 (Tab-Bound) 輔助函式：根據當前活躍分頁同步 toggle UI
+async function updateNovelModeToggleForCurrentTab() {
+    if (!novelModeToggle) return;
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+        if (!tabs[0]) return;
+        const tabId = tabs[0].id;
+        const novelModeTabs = await state.get('novelModeTabs', {});
+        const isEnabled = !!novelModeTabs[tabId];
+        novelModeToggle.checked = isEnabled;
+        if (novelRetryAllBtn) {
+            novelRetryAllBtn.style.display = isEnabled ? 'inline-block' : 'none';
+        }
     });
+}
+
+if (novelModeToggle) {
+    // 1. 初始化載入時同步當前活躍分頁狀態
+    updateNovelModeToggleForCurrentTab();
+
+    // 2. 監聽當前分頁切換與更新事件，自動同步 toggle UI
+    chrome.tabs.onActivated.addListener(updateNovelModeToggleForCurrentTab);
+    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+        if (changeInfo.status === 'complete') {
+            updateNovelModeToggleForCurrentTab();
+        }
+    });
+
+    // 3. toggle UI 變更事件處理
     novelModeToggle.addEventListener('change', async () => {
         const isEnabled = novelModeToggle.checked;
-        await state.set('novelModeEnabled', isEnabled);
-        console.log('[Sidepanel] 小說模式:', isEnabled ? '開啟' : '關閉');
-
-        // 對齊 v1.8.7：切換開關即觸發或停止翻譯
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (novelRetryAllBtn) {
+            novelRetryAllBtn.style.display = isEnabled ? 'inline-block' : 'none';
+        }
+        
+        chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
             if (!tabs[0]) return;
             const tabId = tabs[0].id;
-            
+
+            // 原子化寫入 novelModeTabs[tabId]
+            await state.update('novelModeTabs', (current = {}) => {
+                const next = { ...current };
+                if (isEnabled) {
+                    let origin = true;
+                    try {
+                        if (tabs[0].url) {
+                            origin = new URL(tabs[0].url).origin;
+                        }
+                    } catch (e) {
+                        console.error('[Sidepanel] 無法解析當前分頁 URL 網域:', e);
+                    }
+                    next[tabId] = origin;
+                } else {
+                    delete next[tabId]; // 設為 false 時可直接 delete，省空間
+                }
+                return next;
+            });
+            console.log(`[Sidepanel] 分頁 ${tabId} 小說模式:`, isEnabled ? '開啟' : '關閉');
+
+            // 對齊 v1.8.7：切換開關即觸發或停止翻譯
             if (isEnabled) {
                 chrome.runtime.sendMessage({ action: 'prepareTab', tabId }, (prep) => {
                     if (!prep || !prep.ready) {
                         alert('網頁環境啟動失敗，請重新整理網頁。');
                         novelModeToggle.checked = false;
-                        state.set('novelModeEnabled', false);
+                        state.update('novelModeTabs', (current = {}) => {
+                            const next = { ...current };
+                            delete next[tabId];
+                            return next;
+                        });
                         return;
                     }
                     chrome.tabs.sendMessage(tabId, { action: 'translateNovelPage' });
@@ -821,7 +867,16 @@ if (globalGlossaryToggle) {
     });
 }
 
-
+if (novelRetryAllBtn) {
+    novelRetryAllBtn.onclick = () => {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (!tabs[0]) return;
+            const tabId = tabs[0].id;
+            chrome.tabs.sendMessage(tabId, { action: 'retryAllFailed' });
+            console.log('[Sidepanel] 已發送重試所有失敗小說段落訊息給 tab:', tabId);
+        });
+    };
+}
 
 // 初始化載入
 updateQuotaUI();
