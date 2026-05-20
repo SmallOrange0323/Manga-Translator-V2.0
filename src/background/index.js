@@ -933,7 +933,9 @@ async function cropImageBase64(fullBase64, rect) {
  * 如果 maxDim 為 0 或未設定，則不進行縮放，直接轉 Base64。
  */
 async function resizeImageBlobToBase64(blob, maxDim) {
+    log.info('Background', `[DebugLog] 進入 resizeImageBlobToBase64，maxDim = ${maxDim}`);
     if (!maxDim || maxDim <= 0) {
+        log.info('Background', `[DebugLog] maxDim 為 0 或負數，跳過壓縮，直接轉 base64`);
         // 不壓縮，直接轉 base64
         const arrayBuffer = await blob.arrayBuffer();
         const bytes = new Uint8Array(arrayBuffer);
@@ -946,7 +948,9 @@ async function resizeImageBlobToBase64(blob, maxDim) {
     }
 
     try {
+        log.info('Background', `[DebugLog] resizeImageBlobToBase64: 準備呼叫 createImageBitmap...`);
         const bitmap = await createImageBitmap(blob);
+        log.info('Background', `[DebugLog] resizeImageBlobToBase64: createImageBitmap 成功，原始尺寸 = ${bitmap.width}x${bitmap.height}`);
         let width = bitmap.width;
         let height = bitmap.height;
 
@@ -960,12 +964,15 @@ async function resizeImageBlobToBase64(blob, maxDim) {
             }
         }
 
+        log.info('Background', `[DebugLog] resizeImageBlobToBase64: 創建 OffscreenCanvas 尺寸 = ${width}x${height}`);
         const canvas = new OffscreenCanvas(width, height);
         const ctx = canvas.getContext('2d');
         ctx.drawImage(bitmap, 0, 0, width, height);
         
+        log.info('Background', `[DebugLog] resizeImageBlobToBase64: 準備呼叫 canvas.convertToBlob...`);
         // 匯出為壓縮度較佳的 jpeg (品質設為 0.85 兼顧字體清晰與體積)
         const compressedBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
+        log.info('Background', `[DebugLog] resizeImageBlobToBase64: canvas.convertToBlob 成功，壓縮後大小 = ${compressedBlob.size} bytes`);
         const arrayBuffer = await compressedBlob.arrayBuffer();
         const bytes = new Uint8Array(arrayBuffer);
         let binary = '';
@@ -974,9 +981,10 @@ async function resizeImageBlobToBase64(blob, maxDim) {
             binary += String.fromCharCode.apply(null, bytes.subarray(b, b + chunk_size));
         }
         bitmap.close(); // 釋放記憶體
+        log.info('Background', `[DebugLog] resizeImageBlobToBase64: 圖片處理完成`);
         return btoa(binary);
     } catch (err) {
-        log.warn('Background', `圖片壓縮處理失敗，使用原圖傳送: ${err.message}`);
+        log.warn('Background', `[DebugLog] 圖片壓縮處理失敗，使用原圖傳送: ${err.message}`);
         // 備援：不壓縮轉 base64
         const arrayBuffer = await blob.arrayBuffer();
         const bytes = new Uint8Array(arrayBuffer);
@@ -1217,6 +1225,9 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
     if (!state.isInitialized) await state.init();
     const concurrency = Math.max(1, state.apiKeys.length);
 
+    // 強制重設暫停旗標，確保每次全新的翻譯任務都不會被殘留狀態鎖定
+    await state.set('isBatchPaused', false);
+
     log.info('Background', `開始批次翻譯：共 ${images.length} 張，批次大小=${batchSize}，傳送尺寸限制=${maxDim}px，備援並行度=${concurrency}`);
 
     let completedCount = 0;
@@ -1224,6 +1235,10 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
 
     // 5. 主迴圈：依 batchSize 切塊，逐批處理
     for (let i = 0; i < images.length; i += batchSize) {
+        if (typeof console.groupCollapsed === 'function') {
+            console.groupCollapsed(`[DebugLog Group] 📥 第 ${Math.floor(i / batchSize) + 1} 批圖片下載與壓縮處理詳細日誌 (i = ${i})`);
+        }
+        log.info('Background', `[DebugLog] 進入批次主迴圈，第 ${Math.floor(i / batchSize) + 1} 批，i = ${i}`);
         // Kill-Switch：若結果頁已關閉，終止
         try {
             await chrome.tabs.get(resultTabId);
@@ -1243,7 +1258,9 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
         }
 
         // 暫停輪詢（對齊 v1.8.7 toggleBatchPause 功能）
+        log.info('Background', `[DebugLog] 檢查暫停狀態...`);
         while (await state.get('isBatchPaused', false)) {
+            log.info('Background', `[DebugLog] 漫畫翻譯處於暫停狀態，等待繼續...`);
             // 暫停中，每 500ms 檢查一次是否已繼續
             await new Promise(r => setTimeout(r, 500));
             // 暫停期間如果也收到 isStopping，一並結束
@@ -1254,41 +1271,66 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
         const progressText = batchSize > 1
             ? `第 ${currentBatchIndex} / ${totalBatches} 批 (圖片 ${i + 1}~${Math.min(i + batchSize, images.length)})`
             : `${i + 1} / ${images.length}`;
+        
+        log.info('Background', `[DebugLog] 發送進度更新 sendMessage: ${progressText}`);
         chrome.tabs.sendMessage(resultTabId, { action: 'updateProgress', current: progressText, total: images.length });
         broadcastStatus(`⏳ 正在處理 ${progressText}...`, 'info');
 
+        log.info('Background', `[DebugLog] 開始載入本批 ${currentBatch.length} 張圖片`);
         // 並行抓取本批圖片 Base64，並依 maxDim 進行等比例縮放
-        const base64Results = await Promise.all(currentBatch.map(async (imgData) => {
+        const base64Results = await Promise.all(currentBatch.map(async (imgData, idx) => {
             const imgSrc = imgData.src || imgData;
+            log.info('Background', `[DebugLog] 處理圖片 [${idx}]: imgSrc 長度 = ${imgSrc ? imgSrc.substring(0, 100) : 'null'}`);
             // 如果 imgSrc 已經是 base64 (或者是 selection 截圖)，不需要 resize，直接使用
-            if (imgSrc.startsWith('data:image')) return imgSrc.split(',')[1];
+            if (imgSrc.startsWith('data:image')) {
+                log.info('Background', `[DebugLog] 圖片 [${idx}] 是 base64 格式，跳過 fetch`);
+                return imgSrc.split(',')[1];
+            }
             try {
+                log.info('Background', `[DebugLog] 圖片 [${idx}]: 準備呼叫 fetch`);
                 // 加入 10 秒逾時機制，防止 fetch 無限期掛起
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                const timeoutId = setTimeout(() => {
+                    log.warn('Background', `[DebugLog] 圖片 [${idx}]: fetch 逾時，觸發 abort`);
+                    controller.abort();
+                }, 10000);
                 
                 const res = await fetch(imgSrc, { signal: controller.signal });
                 clearTimeout(timeoutId);
+                log.info('Background', `[DebugLog] 圖片 [${idx}]: fetch 完成，status = ${res.status}`);
                 
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const blob = await res.blob();
+                log.info('Background', `[DebugLog] 圖片 [${idx}]: blob 讀取完成，大小 = ${blob.size} bytes`);
                 
                 // 調用 OffscreenCanvas 進行等比例縮放與壓縮
-                return await resizeImageBlobToBase64(blob, maxDim);
+                log.info('Background', `[DebugLog] 圖片 [${idx}]: 準備呼叫 resizeImageBlobToBase64`);
+                const resB64 = await resizeImageBlobToBase64(blob, maxDim);
+                log.info('Background', `[DebugLog] 圖片 [${idx}]: resizeImageBlobToBase64 完成，產出長度 = ${resB64 ? resB64.length : 0}`);
+                return resB64;
             } catch (fetchErr) {
                 // 退回 Content Script 備援
-                log.warn('Background', `圖片直接抓取失敗，退回 Content Script: ${fetchErr.message}`);
+                log.warn('Background', `[DebugLog] 圖片 [${idx}] 直接抓取失敗，退回 Content Script: ${fetchErr.message}`);
                 broadcastStatus(`⚠️ 圖片抓取逾時或失敗，嘗試透過網頁端抓取...`, 'warn');
                 if (sourceTabId && sourceTabId !== 'current') {
+                    log.info('Background', `[DebugLog] 圖片 [${idx}]: 向 Content Script 發送 fetchBase64，tabId = ${sourceTabId}`);
                     const resp = await Promise.race([
                         new Promise(resolve => chrome.tabs.sendMessage(sourceTabId, { action: 'fetchBase64', url: imgSrc, maxDim: maxDim }, resolve)),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 15000))
-                    ]).catch(e => ({ error: e.message }));
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Content Script fetch Timeout')), 15000))
+                    ]).catch(e => {
+                        log.warn('Background', `[DebugLog] 圖片 [${idx}] Content Script 抓取逾時或出錯: ${e.message}`);
+                        return { error: e.message };
+                    });
+                    log.info('Background', `[DebugLog] 圖片 [${idx}] Content Script 抓取回應: ${resp?.base64 ? '成功' : '失敗'}`);
                     return resp?.base64 || null;
                 }
                 return null;
             }
         }));
+        log.info('Background', `[DebugLog] 本批圖片載入與縮放完成，有效圖片數 = ${base64Results.filter(Boolean).length}`);
+        if (typeof console.groupEnd === 'function') {
+            console.groupEnd();
+        }
 
         // 分離有效/無效圖片
         const validItems = base64Results

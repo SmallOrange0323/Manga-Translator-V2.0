@@ -194,6 +194,7 @@ STRICT EXTRACTION RULES:
 4. NO ONOMATOPOEIA: Strictly exclude sound effects (e.g. ドカン, バキッ, ザーザー are FORBIDDEN).
 5. MINIMUM LENGTH: Proper nouns usually have 2+ characters.
 6. CORRESPONDENCE: Ensure the Traditional Chinese (zh-TW) translation matches the original name's sound and context.
+7. NO MULTI-TO-ONE MISMATCH: Strictly avoid mapping phonetically distinct Katakana names to the exact same Traditional Chinese translation (e.g., mapping both "ミュディ" and "アミュディ" to "謬蒂" is FORBIDDEN).
 
 Input Text to Analyze (Chunk ${i + 1}/${chunks.length}):
 ${inputText}`;
@@ -254,7 +255,24 @@ ${inputText}`;
                 const parsed = JSON.parse(cleanStr);
                 
                 if (Array.isArray(parsed)) {
-                    allNewTerms.push(...parsed);
+                    // 執行嚴格的後置物理過濾，防止大模型幻覺與中中對照污染詞庫
+                    const katakanaOnlyTerms = parsed.filter(t => {
+                        if (!t.ori || !t.trans) return false;
+                        
+                        const oriTrimmed = t.ori.trim();
+                        const transTrimmed = t.trans.trim();
+                        
+                        // 1. 原文與譯文不可相同 (排除中中對照)
+                        if (oriTrimmed === transTrimmed) return false;
+                        
+                        // 2. 原文必須完全由片假名、長音符、中黑點組成 (排除漢字、平假名、英文與中文)
+                        // 片假名區間 \u30a0-\u30ff，長音符 \u30fc，點號 \u30fb
+                        const isPureKatakana = /^[・ー\u30a0-\u30ff]+$/.test(oriTrimmed);
+                        if (!isPureKatakana) return false;
+                        
+                        return true;
+                    });
+                    allNewTerms.push(...katakanaOnlyTerms);
                 }
                 
                 log.api('TranslateAPI', `術語萃取成功 (${i + 1}/${chunks.length})`, { model, latencyMs, keyAlias, status: 'OK' });
