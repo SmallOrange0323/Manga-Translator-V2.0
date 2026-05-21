@@ -294,7 +294,7 @@ ${inputText}`;
  * @param {string} glossarySnippet - 術語注入片段
  * @returns {Array} 長度固定等於 base64Array.length 的結果陣列
  */
-export async function callGeminiAPIBatch(base64Array, customPrompt, glossarySnippet = '', apiKey = null) {
+export async function callGeminiAPIBatch(base64Array, customPrompt, glossarySnippet = '', apiKey = null, customSchema = null) {
     const n = base64Array.length;
     const model = await state.get('modelName', 'gemini-1.5-flash');
 
@@ -321,7 +321,7 @@ export async function callGeminiAPIBatch(base64Array, customPrompt, glossarySnip
         contents: [{ role: 'user', parts: userParts }],
         generationConfig: {
             response_mime_type: 'application/json',
-            response_schema: {
+            response_schema: customSchema || {
                 type: 'OBJECT',
                 properties: {
                     pages: {
@@ -400,6 +400,9 @@ export async function callGeminiAPIBatch(base64Array, customPrompt, glossarySnip
         // 將 pageIndex 對應結果放回正確位置，長度固定等於 n
         const results = parseBatchOutput(data, n);
         results.forEach(r => { r.usedModelName = model; });
+        if (data.contextSummary) {
+            results.contextSummary = data.contextSummary;
+        }
         return results;
 
     } catch (e) {

@@ -78,7 +78,9 @@ async function initGeneralSettings() {
         ['useFallbackModelOnBatchRetry', false],
         ['requestDelay', 4000],
         ['imageMaxDimension', 1024],
-        ['ocrModelName', 'gemma-4-26b-a4b-it']
+        ['ocrModelName', 'gemma-4-26b-a4b-it'],
+        ['mangaContextEnabled', true],
+        ['mangaContextInterval', 10]
     ];
 
     for (const [id, def] of fields) {
@@ -212,7 +214,7 @@ function setupEventHandlers() {
             await state.set('fallbackModelName', document.getElementById('fallbackModelName').value);
             await state.set('customPrompt', document.getElementById('customPrompt').value);
             
-            const numFields = ['ocrBatchSize', 'requestDelay', 'imageMaxDimension'];
+            const numFields = ['ocrBatchSize', 'requestDelay', 'imageMaxDimension', 'mangaContextInterval'];
             for (const id of numFields) {
                 const el = document.getElementById(id);
                 if (el) await state.set(id, parseInt(el.value));
@@ -223,6 +225,9 @@ function setupEventHandlers() {
 
             const fallbackRetry = document.getElementById('useFallbackModelOnBatchRetry');
             if(fallbackRetry) await state.set('useFallbackModelOnBatchRetry', fallbackRetry.checked);
+
+            const mangaContextEnabledEl = document.getElementById('mangaContextEnabled');
+            if(mangaContextEnabledEl) await state.set('mangaContextEnabled', mangaContextEnabledEl.checked);
 
             showStatus('status');
         };

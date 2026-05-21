@@ -1135,6 +1135,43 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
     }
     log.info('Background', `翻譯設定讀取完成 — 主要模型: ${modelName}，備援模型: ${fallbackModelName}`);
 
+    // ── 智慧上下文連貫翻譯初始化 ──
+    const mangaContextEnabled = await state.get('mangaContextEnabled', true);
+    const mangaContextInterval = await state.get('mangaContextInterval', 10);
+    let mangaContextSummary = '';
+    
+    const schemaWithSummary = {
+        type: 'OBJECT',
+        properties: {
+            pages: {
+                type: 'ARRAY',
+                items: {
+                    type: 'OBJECT',
+                    properties: {
+                        pageIndex: { type: 'INTEGER' },
+                        results: {
+                            type: 'ARRAY',
+                            items: {
+                                type: 'OBJECT',
+                                properties: {
+                                    original: { type: 'STRING' },
+                                    translation: { type: 'STRING' }
+                                },
+                                required: ['original', 'translation']
+                            }
+                        }
+                    },
+                    required: ['pageIndex', 'results']
+                }
+            },
+            contextSummary: { 
+                type: 'STRING', 
+                description: '根據舊的劇情總結與這批新翻譯的對話，輸出一個更新後的人物關係與劇情背景繁體中文摘要，控制在 150-200 字以內，並在關鍵人物或名詞旁用括號標註日文原名，例如：謬蒂 (ミュディ)。' 
+            }
+        },
+        required: ['pages', 'contextSummary']
+    };
+
     // ── 語彙庫初始化與注入 (遵循 V1.8.6 邏輯) ──
     let glossarySnippet = '';
     const navCtx = await state.get('navigationContext', {});
@@ -1336,6 +1373,14 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
         });
 
         if (validItems.length > 0) {
+            // ── 智慧上下文連貫 Prompt 注入與間隔判斷 ──
+            const shouldUpdateSummary = mangaContextEnabled && (Math.floor((i + currentBatch.length) / mangaContextInterval) > Math.floor(i / mangaContextInterval));
+            
+            let currentPrompt = finalPrompt;
+            if (mangaContextEnabled && mangaContextSummary) {
+                currentPrompt = `【重要上下文背景（請參考以下人設與劇情背景以維持翻譯連貫性）：】\n${mangaContextSummary}\n\n${finalPrompt}`;
+            }
+
             // 提前計算子批次，讓 catch 區塊中的多 Key 輪流重試也能使用
             const PAYLOAD_LIMIT = 15_000_000;
             const totalPayload = validItems.reduce((sum, v) => sum + v.b64.length, 0);
@@ -1361,30 +1406,50 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
                         log.info('Background', `[批次] 打包 ${subBatch.length} 張圖送出 API...`);
                         const subResults = await callGeminiAPIBatch(
                             subBatch.map(v => v.b64),
-                            finalPrompt,
-                            glossarySnippet
+                            currentPrompt,
+                            glossarySnippet,
+                            null,
+                            shouldUpdateSummary ? schemaWithSummary : null
                         );
                         subBatch.forEach((item, k) => {
                             allPageResults[item.originalIdx] = subResults[k] || { error: '批次結果不足' };
                         });
+                        if (subResults.contextSummary) {
+                            mangaContextSummary = subResults.contextSummary;
+                            log.info('Background', `💡 批次智慧上下文融合完成，最新總結：\n${mangaContextSummary}`);
+                            broadcastStatus(`💡 批次上下文融合完成：${mangaContextSummary.slice(0, 30)}...`, 'info');
+                        }
                     }
                 } else {
                     // ── 逐張路徑 (batchSize=1) ──
                     const item = validItems[0];
                     if (item) {
+                        const customSingleSchema = shouldUpdateSummary ? {
+                            type: 'OBJECT',
+                            properties: {
+                                results: { type: 'ARRAY', items: { type: 'OBJECT', properties: { original: { type: 'STRING' }, translation: { type: 'STRING' } }, required: ['original', 'translation'] } },
+                                contextSummary: { type: 'STRING', description: '根據舊的劇情總結與這批新翻譯的對話，輸出一個更新後的人物關係與劇情背景繁體中文摘要，控制在 150-200 字以內，並在關鍵人物或名詞旁用括號標註日文原名。' }
+                            },
+                            required: ['results', 'contextSummary']
+                        } : {
+                            type: 'OBJECT',
+                            properties: { results: { type: 'ARRAY', items: { type: 'OBJECT', properties: { original: { type: 'STRING' }, translation: { type: 'STRING' } }, required: ['original', 'translation'] } } },
+                            required: ['results']
+                        };
                         const result = await translateTexts([], {
                             model: modelName,
                             fallbackModel: fallbackModelName,
-                            prompt: finalPrompt,
+                            prompt: currentPrompt,
                             glossarySnippet,
                             imageBase64: item.b64,
-                            schema: {
-                                type: 'OBJECT',
-                                properties: { results: { type: 'ARRAY', items: { type: 'OBJECT', properties: { original: { type: 'STRING' }, translation: { type: 'STRING' } }, required: ['original', 'translation'] } } },
-                                required: ['results']
-                            }
+                            schema: customSingleSchema
                         });
                         allPageResults[item.originalIdx] = result;
+                        if (result.contextSummary) {
+                            mangaContextSummary = result.contextSummary;
+                            log.info('Background', `💡 逐頁智慧上下文融合完成，最新總結：\n${mangaContextSummary}`);
+                            broadcastStatus(`💡 上下文融合完成：${mangaContextSummary.slice(0, 30)}...`, 'info');
+                        }
                     }
                 }
             } catch (batchErr) {
@@ -1405,13 +1470,19 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
                         for (const subBatch of subBatches) {
                             const subResults = await callGeminiAPIBatch(
                                 subBatch.map(v => v.b64),
-                                finalPrompt,
+                                currentPrompt,
                                 glossarySnippet,
-                                retryKey  // 指定使用此 Key
+                                retryKey,  // 指定使用此 Key
+                                shouldUpdateSummary ? schemaWithSummary : null
                             );
                             subBatch.forEach((item, k) => {
                                 allPageResults[item.originalIdx] = subResults[k] || { error: '批次結果不足' };
                             });
+                            if (subResults.contextSummary) {
+                                mangaContextSummary = subResults.contextSummary;
+                                log.info('Background', `💡 批次重試智慧上下文融合完成，最新總結：\n${mangaContextSummary}`);
+                                broadcastStatus(`💡 批次上下文融合完成：${mangaContextSummary.slice(0, 30)}...`, 'info');
+                            }
                         }
                         log.info('Background', `[批次] Key${ki + 1} 批次翻譯成功！`);
                         broadcastStatus(`✅ Key${ki + 1} 批次翻譯成功`, 'ok');
@@ -1435,19 +1506,35 @@ async function processMangaBatchPCMode(sourceTabId, resultTabId, images, navLink
                         try {
                             if (await state.get('isStopping')) return;
 
+                            // 備援路徑下，只有處理到符合間隔時，由最後一張圖嘗試獲取 contextSummary
+                            const isLastItemInBatch = k === validItems.length - 1;
+                            const customSingleSchema = (shouldUpdateSummary && isLastItemInBatch) ? {
+                                type: 'OBJECT',
+                                properties: {
+                                    results: { type: 'ARRAY', items: { type: 'OBJECT', properties: { original: { type: 'STRING' }, translation: { type: 'STRING' } }, required: ['original', 'translation'] } },
+                                    contextSummary: { type: 'STRING', description: '根據舊的劇情總結與這批新翻譯的對話，輸出一個更新後的人物關係與劇情背景繁體中文摘要，控制在 150-200 字以內，並在關鍵人物或名詞旁用括號標註日文原名。' }
+                                },
+                                required: ['results', 'contextSummary']
+                            } : {
+                                type: 'OBJECT',
+                                properties: { results: { type: 'ARRAY', items: { type: 'OBJECT', properties: { original: { type: 'STRING' }, translation: { type: 'STRING' } }, required: ['original', 'translation'] } } },
+                                required: ['results']
+                            };
+
                             const result = await translateTexts([], {
                                 model: fallbackModelName,
                                 apiKey: apiKey,
-                                prompt: finalPrompt,
+                                prompt: currentPrompt,
                                 glossarySnippet,
                                 imageBase64: item.b64,
-                                schema: {
-                                    type: 'OBJECT',
-                                    properties: { results: { type: 'ARRAY', items: { type: 'OBJECT', properties: { original: { type: 'STRING' }, translation: { type: 'STRING' } }, required: ['original', 'translation'] } } },
-                                    required: ['results']
-                                }
+                                schema: customSingleSchema
                             });
                             fallbackResults[k] = result;
+                            if (result.contextSummary) {
+                                mangaContextSummary = result.contextSummary;
+                                log.info('Background', `💡 備援逐頁智慧上下文融合完成，最新總結：\n${mangaContextSummary}`);
+                                broadcastStatus(`💡 備援上下文融合完成：${mangaContextSummary.slice(0, 30)}...`, 'info');
+                            }
                             broadcastStatus(`第 ${item.originalIdx + 1} 張備援翻譯成功`, 'ok');
                         } catch (singleErr) {
                             log.warn('Background', `[備援] 第 ${item.originalIdx + 1} 張翻譯失敗 (Key: ${state.getApiKeyAlias(apiKey)}): ${singleErr.message}`);

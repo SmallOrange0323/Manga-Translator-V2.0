@@ -252,6 +252,21 @@
                 </select>
                 <small style="color: #888; font-size:12px;">等比例縮放至此大小後再傳送給 AI，能大幅加快翻譯速度、節約流量並避免因體積過大被 Google 退件。</small>
 
+                <!-- 智慧上下文連貫翻譯設定 -->
+                <div style="border-top: 1px solid var(--border-color); margin-top: 20px; padding-top: 15px;">
+                    <label style="display: flex; align-items: center; gap: 8px; font-weight: bold; margin-top: 5px;">
+                        <input type="checkbox" id="mangaContextEnabled" style="width: auto; margin-top: 0;">
+                        啟用智慧上下文連貫翻譯 (自動融合總結人物與劇情背景)
+                    </label>
+                    <small style="color: #888; font-size:12px; display: block; margin-top: 4px;">利用 0-Request Fusion 融合架構，完全不增加額外的 API 請求，維持長篇漫畫翻譯時的角色譯名與說話口吻一致性。</small>
+
+                    <div id="mangaContextConfig" style="margin-top: 10px;">
+                        <label for="mangaContextInterval" style="font-weight: normal; margin-top: 5px;">上下文總結更新間隔 (張數):</label>
+                        <input type="number" id="mangaContextInterval" min="5" max="50" value="10">
+                        <small style="color: #888; font-size:12px; display: block; margin-top: 4px;">建議設定 10 張。每隔此張數會將翻譯結果與劇情總結在同一次請求中進行提煉與更新。</small>
+                    </div>
+                </div>
+
                 <button id="fetchModelsBtn" type="button" class="btn-accent" style="width:100%; margin-top:12px;">🔄 從 Google 取得最新模型清單</button>
 
                 <label for="customPrompt">自訂翻譯規則 (Prompt):</label>
