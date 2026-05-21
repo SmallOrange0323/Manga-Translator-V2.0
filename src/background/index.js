@@ -358,13 +358,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                           }
                       });
                       hasValidResult = true;
-                  } else if (result?.translations && Array.isArray(result.translations)) {
-                      result.translations.forEach((resText, idx) => {
-                          if (idx < texts.length) {
-                              finalTranslations[idx] = resText || texts[idx];
-                          }
-                      });
-                      hasValidResult = true;
                   }
               }
 
@@ -800,11 +793,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'navigateAndTranslate') {
-      const { url, tabId, mangaKey } = message;
+      const { url, tabId, mangaKey, mobile } = message;
       if (!url || !tabId) { sendResponse({ status: 'error' }); return false; }
       // 儲存 resultTabId（發送訊息的分頁），讓 onUpdated 知道要通知哪個結果頁
       const resultTabId = sender.tab?.id || null;
-      state.set('pendingAutoTranslate', { tabId, resultTabId, mangaKey: mangaKey || null }).then(() => {
+      state.set('pendingAutoTranslate', { tabId, resultTabId, mangaKey: mangaKey || null, mobile: !!mobile }).then(() => {
           chrome.tabs.update(tabId, { url }, () => {
               if (chrome.runtime.lastError) {
                   console.warn('[Background] navigateAndTranslate failed:', chrome.runtime.lastError.message);
@@ -1065,8 +1058,8 @@ async function handleProcessScreenshot(rect, tabId) {
  * openNewResultPage — 開一個新的結果頁並儲存 pendingBatchJobs
  * 供 navigateAndTranslate 的 fallback（結果頁已關閉時）使用
  */
-function openNewResultPage(sourceTabId, images, navLinks, mangaKey) {
-    const mobileParam = '&mobile=0';
+function openNewResultPage(sourceTabId, images, navLinks, mangaKey, mobile) {
+    const mobileParam = mobile ? '&mobile=1' : '&mobile=0';
     chrome.tabs.get(sourceTabId, (sourceTab) => {
         const targetWindowId = sourceTab ? sourceTab.windowId : undefined;
         chrome.tabs.create({
@@ -1560,10 +1553,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (pendingAuto && pendingAuto.tabId === tabId) {
       log.info('Background', `偵測到跳轉完成，啟動自動翻譯: ${tabId}`);
       await state.set('pendingAutoTranslate', null);
-      const { resultTabId, mangaKey } = pendingAuto;
+      const { resultTabId, mangaKey, mobile } = pendingAuto;
       // 【缺口F移植】改用帶重試的接力翻譯啟動函式（8次 × 1.5秒間隔）
       // 確保 content script 尚未就緒時仍能成功抓取圖片並啟動翻譯
-      autoStartBatchWithRetry(tabId, resultTabId, mangaKey);
+      autoStartBatchWithRetry(tabId, resultTabId, mangaKey, mobile);
   }
 
   // 1. 智慧標題辨識
@@ -1677,8 +1670,8 @@ async function sendMessageWithRetry(tabId, message, maxRetries = 8, interval = 1
  * 【缺口F移植】帶重試的接力翻譯啟動函式 (移植自 V1.8.6 autoStartBatch)
  * 跳轉後由 onTabsUpdated 呼叫，確保 content script 就緒後再抓圖
  */
-async function autoStartBatchWithRetry(tabId, resultTabId, mangaKey) {
-    log.info('Background', `[AutoBatch] 嘗試開始接力翻譯 - TabID: ${tabId}`);
+async function autoStartBatchWithRetry(tabId, resultTabId, mangaKey, mobile) {
+    log.info('Background', `[AutoBatch] 嘗試開始接力翻譯 - TabID: ${tabId}, Mobile: ${!!mobile}`);
     try {
         // 先確保 content script 已注入（Edge Android 背景分頁跳轉後可能未自動注入）
         log.info('Background', `[AutoBatch] 確認 content script 注入狀態...`);
@@ -1708,7 +1701,7 @@ async function autoStartBatchWithRetry(tabId, resultTabId, mangaKey) {
                     }, (res) => {
                         if (chrome.runtime.lastError) {
                             log.warn('Background', '[AutoBatch] 結果頁無回應，改開新頁');
-                            openNewResultPage(tabId, images, navLinks, mangaKey);
+                            openNewResultPage(tabId, images, navLinks, mangaKey, mobile);
                         } else {
                             processMangaBatchPCMode(tabId, resultTabId, images, navLinks);
                         }
@@ -1719,7 +1712,7 @@ async function autoStartBatchWithRetry(tabId, resultTabId, mangaKey) {
                 log.warn('Background', '[AutoBatch] 原有結果頁已關閉，開新頁');
             }
         }
-        openNewResultPage(tabId, images, navLinks, mangaKey);
+        openNewResultPage(tabId, images, navLinks, mangaKey, mobile);
     } catch (err) {
         log.error('Background', `[AutoBatch] 接力翻譯啟動失敗（8次重試均失敗）: ${err.message}`);
     }

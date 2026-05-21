@@ -394,7 +394,8 @@ function updateNavUI(navLinks) {
                     action: "navigateAndTranslate", 
                     url: safePrev,
                     tabId: sourceTabId,
-                    mangaKey: activeMangaKey
+                    mangaKey: activeMangaKey,
+                    mobile: urlParams.get('mobile') === '1'
                 });
             };
             prevBtn.title = safePrev;
@@ -416,7 +417,8 @@ function updateNavUI(navLinks) {
                     action: "navigateAndTranslate", 
                     url: safeNext,
                     tabId: sourceTabId,
-                    mangaKey: activeMangaKey
+                    mangaKey: activeMangaKey,
+                    mobile: urlParams.get('mobile') === '1'
                 });
             };
             nextBtn.title = safeNext;

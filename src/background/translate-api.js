@@ -116,12 +116,6 @@ export async function translateTexts(texts, options = {}) {
                         error: apiError 
                     });
 
-                    // 只有在明確設定了與主要模型不同的備援模型時，才進行切換
-                    if (attempt === 1 && fallbackModel && fallbackModel !== currentModel) {
-                        log.info('TranslateAPI', `偵測到主要模型異常 (${statusCode})，立即切換至使用者設定的備援模型: ${fallbackModel}`);
-                        currentModel = fallbackModel;
-                    }
-
                     throw new Error(`API 錯誤 ${statusCode}: ${apiError}`);
                 }
 
@@ -144,9 +138,9 @@ export async function translateTexts(texts, options = {}) {
             
             lastError = err;
             
-            // 如果是 catch 到的異常 (非 response.ok)，也檢查是否需要切換模型
+            // 統一在此處（catch 區塊）檢查是否需要切換至備援模型（不論是 API 錯誤還是連線錯誤）
             if (attempt === 1 && fallbackModel && fallbackModel !== currentModel) {
-                log.info('TranslateAPI', `連線發生異常，立即切換至使用者設定的備援模型: ${fallbackModel}`);
+                log.info('TranslateAPI', `偵測到主要模型發生異常 (${err.message})，立即切換至使用者設定的備援模型: ${fallbackModel}`);
                 currentModel = fallbackModel;
             }
             
